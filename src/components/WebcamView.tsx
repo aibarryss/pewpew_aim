@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Camera as CameraIcon, VideoOff, RefreshCw, FlipHorizontal, Eye } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Camera as CameraIcon, VideoOff, RefreshCw, FlipHorizontal, Eye, MousePointer } from 'lucide-react';
 import { HandDetectionResult, GestureErrorFeedback, Landmark } from '../types/game';
 import { GestureDetector } from '../utils/gestureDetector';
 
@@ -12,14 +12,13 @@ interface WebcamViewProps {
   compact?: boolean;
 }
 
-// MediaPipe connections for 21 hand landmarks
 const HAND_CONNECTIONS = [
-  [0, 1], [1, 2], [2, 3], [3, 4], // Thumb
-  [0, 5], [5, 6], [6, 7], [7, 8], // Index
-  [5, 9], [9, 10], [10, 11], [11, 12], // Middle
-  [9, 13], [13, 14], [14, 15], [15, 16], // Ring
-  [13, 17], [17, 18], [18, 19], [19, 20], // Pinky
-  [0, 17], // Palm base
+  [0, 1], [1, 2], [2, 3], [3, 4],
+  [0, 5], [5, 6], [6, 7], [7, 8],
+  [5, 9], [9, 10], [10, 11], [11, 12],
+  [9, 13], [13, 14], [14, 15], [15, 16],
+  [13, 17], [17, 18], [18, 19], [19, 20],
+  [0, 17],
 ];
 
 export const WebcamView: React.FC<WebcamViewProps> = ({
@@ -32,51 +31,91 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const animLoopRef = useRef<number | null>(null);
+  const isProcessingRef = useRef<boolean>(false);
+
   const [cameraActive, setCameraActive] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [fps, setFps] = useState<number>(0);
-  const fpsCountRef = useRef({ frames: 0, lastTime: performance.now() });
+  const [mouseSimMode, setMouseSimMode] = useState<boolean>(false);
 
+  const fpsCountRef = useRef({ frames: 0, lastTime: performance.now() });
   const detectorRef = useRef<GestureDetector>(new GestureDetector());
   const handsInstanceRef = useRef<unknown>(null);
-  const cameraInstanceRef = useRef<unknown>(null);
 
-  // Initialize MediaPipe Hands
-  const initMediaPipe = useCallback(async () => {
-    setLoading(true);
-    setErrorMessage(null);
+  // Load MediaPipe scripts dynamically if missing
+  const ensureMediaPipeLoaded = async (): Promise<boolean> => {
+    const checkReady = () => typeof (window as unknown as { Hands?: unknown }).Hands === 'function';
+    if (checkReady()) return true;
 
-    // Wait for MediaPipe scripts on window
+    // Inject script if not present
+    if (!document.getElementById('mediapipe-hands-script')) {
+      const script = document.createElement('script');
+      script.id = 'mediapipe-hands-script';
+      script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js';
+      script.crossOrigin = 'anonymous';
+      document.head.appendChild(script);
+    }
+
     let attempts = 0;
-    while ((!(window as unknown as { Hands?: unknown }).Hands || !(window as unknown as { Camera?: unknown }).Camera) && attempts < 30) {
+    while (!checkReady() && attempts < 35) {
       await new Promise((r) => setTimeout(r, 200));
       attempts++;
     }
 
-    const windowWithMP = window as unknown as {
-      Hands?: new (config: { locateFile: (file: string) => string }) => {
-        setOptions: (opts: Record<string, unknown>) => void;
-        onResults: (cb: (results: { multiHandLandmarks?: Landmark[][] }) => void) => void;
-        send: (input: { image: HTMLVideoElement }) => Promise<void>;
-        close: () => void;
-      };
-      Camera?: new (
-        video: HTMLVideoElement,
-        config: { onFrame: () => Promise<void>; width: number; height: number }
-      ) => {
-        start: () => Promise<void>;
-        stop: () => void;
-      };
-    };
+    return checkReady();
+  };
 
-    if (!windowWithMP.Hands || !windowWithMP.Camera) {
-      setErrorMessage('Не удалось загрузить библиотеку MediaPipe. Проверьте интернет-соединение.');
-      setLoading(false);
-      return;
-    }
+  // Start Camera Stream via standard getUserMedia
+  const startCamera = async () => {
+    setLoading(true);
+    setErrorMessage(null);
 
     try {
+      // 1. Ensure MediaPipe is loaded
+      const mpReady = await ensureMediaPipeLoaded();
+      if (!mpReady) {
+        throw new Error('Не удалось загрузить модель MediaPipe. Проверьте интернет.');
+      }
+
+      // 2. Request Camera stream with flexible constraints
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: 'user',
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+          },
+          audio: false,
+        });
+      } catch {
+        // Fallback to basic video constraint
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      }
+
+      streamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+
+      // 3. Initialize Hands Instance
+      const windowWithMP = window as unknown as {
+        Hands: new (config: { locateFile: (file: string) => string }) => {
+          setOptions: (opts: Record<string, unknown>) => void;
+          onResults: (cb: (results: { multiHandLandmarks?: Landmark[][] }) => void) => void;
+          send: (input: { image: HTMLVideoElement }) => Promise<void>;
+          close: () => void;
+        };
+      };
+
       const hands = new windowWithMP.Hands({
         locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`,
       });
@@ -84,8 +123,8 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
       hands.setOptions({
         maxNumHands: 1,
         modelComplexity: 1,
-        minDetectionConfidence: 0.65,
-        minTrackingConfidence: 0.65,
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.6,
       });
 
       hands.onResults((results) => {
@@ -104,48 +143,47 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
 
         const { result, errors } = detectorRef.current.analyze(rawLandmarks, isMirrored);
         onHandUpdate(result, errors);
-
-        // Draw skeleton overlay
         drawOverlay(result.landmarks, result);
+        isProcessingRef.current = false;
       });
 
       handsInstanceRef.current = hands;
 
-      if (videoRef.current) {
-        const camera = new windowWithMP.Camera(videoRef.current, {
-          onFrame: async () => {
-            if (videoRef.current && handsInstanceRef.current) {
+      // 4. Start requestAnimationFrame loop
+      const processFrame = async () => {
+        if (videoRef.current && videoRef.current.readyState >= 2 && handsInstanceRef.current) {
+          if (!isProcessingRef.current) {
+            isProcessingRef.current = true;
+            try {
               await (handsInstanceRef.current as { send: (input: { image: HTMLVideoElement }) => Promise<void> }).send({
                 image: videoRef.current,
               });
+            } catch {
+              isProcessingRef.current = false;
             }
-          },
-          width: 640,
-          height: 480,
-        });
+          }
+        }
+        animLoopRef.current = requestAnimationFrame(processFrame);
+      };
 
-        await camera.start();
-        cameraInstanceRef.current = camera;
-        setCameraActive(true);
-        setLoading(false);
-      }
-    } catch (err) {
-      console.error('Failed to init camera / hands:', err);
-      setErrorMessage('Ошибка доступа к веб-камере. Пожалуйста, разрешите доступ к камере в браузере.');
+      animLoopRef.current = requestAnimationFrame(processFrame);
+      setCameraActive(true);
+      setLoading(false);
+    } catch (err: unknown) {
+      console.error('Camera init error:', err);
+      const msg = err instanceof Error ? err.message : 'Ошибка доступа к камере';
+      setErrorMessage(`Доступ к камере заблокирован или не поддерживается (${msg}). Разрешите камеру в настройках сайта.`);
       setLoading(false);
     }
-  }, [isMirrored, onHandUpdate]);
+  };
 
   useEffect(() => {
-    initMediaPipe();
+    startCamera();
 
     return () => {
-      if (cameraInstanceRef.current) {
-        try {
-          (cameraInstanceRef.current as { stop: () => void }).stop();
-        } catch {
-          // ignore
-        }
+      if (animLoopRef.current) cancelAnimationFrame(animLoopRef.current);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
       }
       if (handsInstanceRef.current) {
         try {
@@ -155,9 +193,40 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
         }
       }
     };
-  }, [initMediaPipe]);
+  }, [isMirrored]);
 
-  // Render hand skeleton & gesture visualizer
+  // Mouse Simulation Fallback (Allows testing if camera is absent or denied)
+  const enableMouseSimulation = () => {
+    setMouseSimMode(true);
+    setErrorMessage(null);
+    setLoading(false);
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const x = e.clientX / window.innerWidth;
+      const y = e.clientY / window.innerHeight;
+
+      onHandUpdate(
+        {
+          detected: true,
+          landmarks: null,
+          cursor: { x, y },
+          gesture: e.buttons === 1 ? 'PINCH_SHOOT' : 'AIMING',
+          pinchDistance: e.buttons === 1 ? 0.1 : 0.8,
+          isOpenPalm: e.shiftKey,
+          isFist: e.ctrlKey,
+          isAiming: true,
+          isPinch: e.buttons === 1,
+          isPeace: false,
+          indexFingerStraightness: 1.0,
+          confidence: 1.0,
+        },
+        []
+      );
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+  };
+
   const drawOverlay = (landmarks: Landmark[] | null, result: HandDetectionResult) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -165,30 +234,24 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
     if (!ctx) return;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
     if (!landmarks || !showSkeleton) return;
 
     const w = canvas.width;
     const h = canvas.height;
 
-    // Line style depending on active gesture
-    let strokeColor = '#06b6d4'; // Cyan default
+    let strokeColor = '#06b6d4';
     let jointColor = '#22d3ee';
     if (result.gesture === 'PINCH_SHOOT') {
-      strokeColor = '#ec4899'; // Pink/Magenta for shot
+      strokeColor = '#ec4899';
       jointColor = '#f472b6';
     } else if (result.gesture === 'SHIELD_PALM') {
-      strokeColor = '#10b981'; // Emerald for shield
+      strokeColor = '#10b981';
       jointColor = '#34d399';
     } else if (result.gesture === 'POWER_FIST') {
-      strokeColor = '#f59e0b'; // Amber for fist
+      strokeColor = '#f59e0b';
       jointColor = '#fbbf24';
-    } else if (result.gesture === 'PEACE_SIGN') {
-      strokeColor = '#8b5cf6'; // Violet for peace
-      jointColor = '#a78bfa';
     }
 
-    // Draw Bones
     ctx.lineWidth = 3;
     ctx.strokeStyle = strokeColor;
     ctx.shadowBlur = 8;
@@ -203,13 +266,10 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
       ctx.stroke();
     });
 
-    // Draw Joints
     landmarks.forEach((p, idx) => {
       const px = p.x * w;
       const py = p.y * h;
-
       ctx.beginPath();
-      // Emphasize key tips (Index tip 8, Thumb tip 4)
       if (idx === 8 || idx === 4) {
         ctx.arc(px, py, 6, 0, 2 * Math.PI);
         ctx.fillStyle = idx === 8 ? '#f43f5e' : '#eab308';
@@ -220,20 +280,6 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
       ctx.fill();
     });
 
-    // Draw Pinch laser link if aiming / shooting
-    if (result.isAiming || result.gesture === 'PINCH_SHOOT') {
-      const thumb = landmarks[4];
-      const index = landmarks[8];
-      ctx.beginPath();
-      ctx.setLineDash([4, 4]);
-      ctx.moveTo(thumb.x * w, thumb.y * h);
-      ctx.lineTo(index.x * w, index.y * h);
-      ctx.strokeStyle = result.isPinch ? '#f43f5e' : 'rgba(255, 255, 255, 0.4)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-
     ctx.shadowBlur = 0;
   };
 
@@ -243,7 +289,6 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
         compact ? 'w-48 h-36 md:w-64 md:h-48' : 'w-full h-full'
       }`}
     >
-      {/* Video Element */}
       <video
         ref={videoRef}
         autoPlay
@@ -252,7 +297,6 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
         className={`w-full h-full object-cover ${isMirrored ? 'scale-x-[-1]' : ''}`}
       />
 
-      {/* Skeleton Overlay Canvas */}
       <canvas
         ref={canvasRef}
         width={320}
@@ -260,41 +304,47 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
         className="absolute inset-0 w-full h-full pointer-events-none"
       />
 
-      {/* Loading Spinner */}
       {loading && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/80 text-cyan-400 p-4 text-center">
-          <RefreshCw className="w-8 h-8 animate-spin mb-2 text-cyan-400" />
-          <p className="font-cyber text-sm font-semibold tracking-wider uppercase">Инициализация нейросети...</p>
-          <p className="text-xs text-slate-400 mt-1">Загрузка MediaPipe Hands (GPU Vision)</p>
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/85 text-cyan-400 p-3 text-center z-20">
+          <RefreshCw className="w-7 h-7 animate-spin mb-2 text-cyan-400" />
+          <p className="font-cyber text-xs font-semibold tracking-wider uppercase">Запуск камеры и нейросети...</p>
+          <p className="text-[10px] text-slate-400 mt-0.5">Разрешите доступ к камере во всплывающем окне</p>
         </div>
       )}
 
-      {/* Error State */}
       {errorMessage && !loading && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-rose-950/90 text-rose-200 p-4 text-center">
-          <VideoOff className="w-8 h-8 mb-2 text-rose-400" />
-          <p className="text-xs font-semibold">{errorMessage}</p>
-          <button
-            onClick={initMediaPipe}
-            className="mt-3 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded text-xs font-medium uppercase tracking-wider flex items-center gap-1.5 transition-colors"
-          >
-            <RefreshCw className="w-3.5 h-3.5" /> Повторить
-          </button>
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/95 text-rose-200 p-3 text-center z-20">
+          <VideoOff className="w-6 h-6 mb-1 text-rose-400 shrink-0" />
+          <p className="text-[11px] leading-tight text-slate-300 line-clamp-3">{errorMessage}</p>
+          <div className="flex items-center gap-1.5 mt-2">
+            <button
+              onClick={startCamera}
+              className="px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-[10px] font-cyber uppercase tracking-wider flex items-center gap-1"
+            >
+              <RefreshCw className="w-3 h-3" /> Повторить
+            </button>
+            <button
+              onClick={enableMouseSimulation}
+              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-[10px] font-cyber uppercase tracking-wider flex items-center gap-1"
+            >
+              <MousePointer className="w-3 h-3" /> Режим Мыши
+            </button>
+          </div>
         </div>
       )}
 
       {/* Top HUD Controls on Camera Widget */}
-      <div className="absolute top-2 left-2 right-2 flex items-center justify-between text-[11px] font-cyber text-cyan-300 pointer-events-auto">
+      <div className="absolute top-2 left-2 right-2 flex items-center justify-between text-[11px] font-cyber text-cyan-300 pointer-events-auto z-10">
         <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-950/70 border border-cyan-500/20 backdrop-blur-sm">
-          <span className={`w-2 h-2 rounded-full ${cameraActive ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
-          <span>{fps} FPS</span>
+          <span className={`w-2 h-2 rounded-full ${cameraActive || mouseSimMode ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
+          <span>{mouseSimMode ? 'MOUSE MODE' : `${fps} FPS`}</span>
         </div>
 
         <div className="flex items-center gap-1">
           {onToggleSkeleton && (
             <button
               onClick={onToggleSkeleton}
-              title="Показать / скрыть скелет руки"
+              title="Показать / скрыть скелет"
               className={`p-1.5 rounded transition-all ${
                 showSkeleton ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'bg-slate-950/70 text-slate-400 border border-slate-700'
               }`}
@@ -306,7 +356,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
           {onToggleMirror && (
             <button
               onClick={onToggleMirror}
-              title="Зеркалирование камеры"
+              title="Зеркалирование"
               className={`p-1.5 rounded transition-all ${
                 isMirrored ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'bg-slate-950/70 text-slate-400 border border-slate-700'
               }`}
@@ -317,8 +367,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
         </div>
       </div>
 
-      {/* Bottom Camera Caption */}
-      <div className="absolute bottom-1.5 left-2 right-2 flex justify-between items-center text-[10px] text-slate-400 bg-slate-950/70 px-2 py-0.5 rounded border border-slate-800 pointer-events-none">
+      <div className="absolute bottom-1.5 left-2 right-2 flex justify-between items-center text-[10px] text-slate-400 bg-slate-950/70 px-2 py-0.5 rounded border border-slate-800 pointer-events-none z-10">
         <span className="flex items-center gap-1">
           <CameraIcon className="w-3 h-3 text-cyan-400" /> AI Motion Cam
         </span>
