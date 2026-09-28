@@ -33,39 +33,39 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
   const gestures = [
     {
       id: 'aim',
-      name: '🎯 1. Прицеливание (Laser Aim)',
+      name: ' Прицеливание (Laser Aim)',
       desc: 'Выпрями указательный палец вперед, направив его на экран. Кончик пальца перемещает неоновый лазерный прицел.',
       active: handResult.isAiming || handResult.gesture === 'AIMING',
       icon: Crosshair,
       color: 'text-cyan-400 border-cyan-500/40 bg-cyan-950/30',
-      activeBadge: '✅ ЗАХВАЧЕНО: ПРИЦЕЛ АКТИВЕН',
+      activeBadge: '✅ АКТИВНО: ПРИЦЕЛ АКТИВЕН',
     },
     {
       id: 'pinch',
-      name: '💥 2. Выстрел (Pinch Trigger)',
+      name: ' Выстрел (Pinch Trigger)',
       desc: 'Быстро сомкни кончик большого и указательного пальцев (жест щипка / спуска курка) — произойдет мгновенный лазерный выстрел.',
       active: handResult.gesture === 'PINCH_SHOOT' || handResult.isPinch,
       icon: Sparkles,
       color: 'text-pink-400 border-pink-500/40 bg-pink-950/30',
-      activeBadge: '✅ ЗАХВАЧЕНО: ВЫСТРЕЛ!',
+      activeBadge: '✅ АКТИВНО: ВЫСТРЕЛ!',
     },
     {
       id: 'shield',
-      name: '🛡️ 3. Силовой Щит (Open Palm)',
+      name: ' Силовой Щит (Open Palm)',
       desc: 'Раскрой всю ладонь всеми 5 пальцами к камере. Активируется силовой барьер, отражающий вражеские снаряды обратно в дронов.',
       active: handResult.isOpenPalm || handResult.gesture === 'SHIELD_PALM',
       icon: Shield,
       color: 'text-emerald-400 border-emerald-500/40 bg-emerald-950/30',
-      activeBadge: '✅ ЗАХВАЧЕНО: ЩИТ ПОДНЯТ!',
+      activeBadge: '✅ АКТИВНО: ЩИТ ПОДНЯТ!',
     },
     {
       id: 'fist',
-      name: '⚡ 4. EMP Взрыв / Очистка (Power Fist)',
+      name: ' EMP Взрыв / Очистка (Power Fist)',
       desc: 'Сожми ладонь в плотный кулак на 0.8 сек — вызовет импульсный EMP взрыв, уничтожающий всех врагов на экране.',
       active: handResult.isFist || handResult.gesture === 'POWER_FIST',
       icon: Zap,
       color: 'text-amber-400 border-amber-500/40 bg-amber-950/30',
-      activeBadge: '✅ ЗАХВАЧЕНО: EMP ЗАРЯЖАЕТСЯ!',
+      activeBadge: '✅ АКТИВНО: EMP ЗАРЯЖАЕТСЯ!',
     },
   ];
 
@@ -141,7 +141,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
             <>
               <div className="p-3 rounded-xl bg-cyan-950/40 border border-cyan-500/30 text-xs text-cyan-200 flex items-center justify-between">
                 <span>
-                  💡 <strong>Интерактивный тест:</strong> Покажите жест перед камерой прямо сейчас — блок подсветится зеленым!
+                   <strong>Интерактивный тест:</strong> Покажите жест перед камерой прямо сейчас — блок подсветится зеленым!
                 </span>
                 <span className="font-mono font-bold text-cyan-400">
                   {handResult.detected ? 'Камера: Рука найдена' : 'Камера: Поднесите руку'}
@@ -267,7 +267,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
                     +500
                   </div>
                   <div>
-                    <strong className="text-amber-300 block">Золотое ядро</strong>
+                    <strong className="text-amber-300 block">Золотое яйцо</strong>
                     <span className="text-slate-300">Редкий бонус, мгновенный буст очков</span>
                   </div>
                 </div>
