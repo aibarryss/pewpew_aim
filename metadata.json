@@ -1,0 +1,8 @@
+{
+  "name": "PewPew Aim - Webcam Gesture Shooter",
+  "description": "Управляй шутером движениями рук перед веб-камерой: триггер пальцем, силовой щит ладонью, режим исправления ошибок и таблица рекордов.",
+  "permissions": [
+    "camera"
+  ],
+  "capabilities": []
+}
