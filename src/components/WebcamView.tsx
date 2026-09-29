@@ -108,8 +108,8 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: 'user',
-            width: { ideal: 640 },
-            height: { ideal: 480 },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
           },
           audio: false,
         });
@@ -507,7 +507,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
   return (
     <div
       className={`relative overflow-hidden rounded-xl border border-cyan-500/30 bg-slate-900/90 shadow-2xl backdrop-blur-md transition-all ${
-        compact ? 'w-52 h-40 md:w-64 md:h-48' : 'w-full h-full'
+        compact ? 'w-64 h-48 md:w-80 md:h-60' : 'w-full h-full'
       }`}
     >
       <video

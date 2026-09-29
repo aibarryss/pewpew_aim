@@ -25,24 +25,36 @@ function calculateAngle(a: Landmark, b: Landmark, c: Landmark): number {
   return (Math.acos(cosine) * 180) / Math.PI;
 }
 
-// Exponential smoothing filter for cursor stability
+// Exponential smoothing filter for cursor stability with dead zone to eliminate micro-tremors
 export class CursorSmoother {
   private smoothedX: number | null = null;
   private smoothedY: number | null = null;
   private alpha: number;
+  private deadZone: number;
 
-  constructor(alpha: number = 0.45) {
+  constructor(alpha: number = 0.35, deadZone: number = 0.002) {
     this.alpha = alpha;
+    this.deadZone = deadZone;
   }
 
   public update(x: number, y: number): { x: number; y: number } {
     if (this.smoothedX === null || this.smoothedY === null) {
       this.smoothedX = x;
       this.smoothedY = y;
-    } else {
-      this.smoothedX = this.smoothedX + this.alpha * (x - this.smoothedX);
-      this.smoothedY = this.smoothedY + this.alpha * (y - this.smoothedY);
+      return { x: this.smoothedX, y: this.smoothedY };
     }
+
+    const dx = x - this.smoothedX;
+    const dy = y - this.smoothedY;
+    const dist = Math.hypot(dx, dy);
+
+    // Suppress micro-tremors within dead zone threshold without adding lag to intentional movements
+    if (dist < this.deadZone) {
+      return { x: this.smoothedX, y: this.smoothedY };
+    }
+
+    this.smoothedX = this.smoothedX + this.alpha * dx;
+    this.smoothedY = this.smoothedY + this.alpha * dy;
     return { x: this.smoothedX, y: this.smoothedY };
   }
 
@@ -53,7 +65,7 @@ export class CursorSmoother {
 }
 
 export class GestureDetector {
-  private cursorSmoother = new CursorSmoother(0.5);
+  private cursorSmoother = new CursorSmoother(0.35);
 
   // Mouth-Open Shooting State Machine Constants (Normalized to Face Width 234-454)
   public static readonly MOUTH_OPEN_THRESHOLD = 0.14;
