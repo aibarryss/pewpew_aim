@@ -28,13 +28,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
   // Stable Refs for Props to isolate the 60fps Game Loop
   const handResultRef = useRef<HandDetectionResult>(handResult);
+  handResultRef.current = handResult; // Always keep fresh synchronously
   const onStatsUpdateRef = useRef(onStatsUpdate);
   const gameActiveRef = useRef(gameActive);
   const gameModeRef = useRef(gameMode);
-
-  useEffect(() => {
-    handResultRef.current = handResult;
-  }, [handResult]);
+  const lastKnownCursorRef = useRef<{ x: number; y: number }>({ x: 0.5, y: 0.5 });
+  const wasTriggerShootRef = useRef<boolean>(false);
 
   useEffect(() => {
     onStatsUpdateRef.current = onStatsUpdate;
@@ -396,12 +395,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
 
         // Action: Shoot on Mouth Open Trigger (confirmed 1-shot per opening)
-        if (curHand.detected && curHand.cursor) {
-          if (curHand.triggerShoot) {
-            shoot(curHand.cursor.x, curHand.cursor.y);
-          }
+        if (curHand.cursor) {
+          lastKnownCursorRef.current = curHand.cursor;
+        }
 
-          // Power Fist Charging Check with 10s cooldown
+        if (curHand.triggerShoot && !wasTriggerShootRef.current) {
+          const aimX = curHand.cursor ? curHand.cursor.x : lastKnownCursorRef.current.x;
+          const aimY = curHand.cursor ? curHand.cursor.y : lastKnownCursorRef.current.y;
+          shoot(aimX, aimY);
+        }
+        wasTriggerShootRef.current = !!curHand.triggerShoot;
+
+        // Power Fist Charging Check with 10s cooldown
+        if (curHand.detected && curHand.cursor) {
           if (curHand.gesture === 'POWER_FIST') {
             if (time - lastEmpTimeRef.current < 10000) {
               powerFistChargeRef.current = 0;

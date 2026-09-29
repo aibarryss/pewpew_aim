@@ -55,11 +55,11 @@ export class CursorSmoother {
 export class GestureDetector {
   private cursorSmoother = new CursorSmoother(0.5);
 
-  // Mouth-Open Shooting State Machine Constants
-  public static readonly MOUTH_OPEN_THRESHOLD = 0.35;
-  public static readonly MOUTH_RELEASE_THRESHOLD = 0.20;
+  // Mouth-Open Shooting State Machine Constants (Normalized to Face Width 234-454)
+  public static readonly MOUTH_OPEN_THRESHOLD = 0.14;
+  public static readonly MOUTH_RELEASE_THRESHOLD = 0.07;
   public static readonly MOUTH_CONFIRMATION_MS = 120;
-  public static readonly MOUTH_POST_SHOT_DEBOUNCE_MS = 120;
+  public static readonly MOUTH_POST_SHOT_DEBOUNCE_MS = 100;
 
   private mouthState: 'CLOSED' | 'CONFIRMING' | 'LOCKED' = 'CLOSED';
   private mouthConfirmStartTime: number = 0;
@@ -101,15 +101,27 @@ export class GestureDetector {
       // MediaPipe FaceMesh standard landmarks:
       // 13 = upper inner lip, 14 = lower inner lip
       // 61 = left mouth corner, 291 = right mouth corner
+      // 234 = right cheek/ear tragus, 454 = left cheek/ear tragus
       const upperLip = faceLandmarks[13];
       const lowerLip = faceLandmarks[14];
-      const leftCorner = faceLandmarks[61];
-      const rightCorner = faceLandmarks[291];
+      const innerLipDist = Math.hypot(upperLip.x - lowerLip.x, upperLip.y - lowerLip.y);
 
-      const verticalDist = Math.hypot(upperLip.x - lowerLip.x, upperLip.y - lowerLip.y);
-      const horizontalDist = Math.hypot(leftCorner.x - rightCorner.x, leftCorner.y - rightCorner.y);
+      // Stable face scale reference (distance between landmarks 234 and 454)
+      let faceScale = 0.3;
+      if (faceLandmarks.length > 454) {
+        const pt234 = faceLandmarks[234];
+        const pt454 = faceLandmarks[454];
+        const faceWidth = Math.hypot(pt454.x - pt234.x, pt454.y - pt234.y);
+        if (faceWidth > 0.05) {
+          faceScale = faceWidth;
+        }
+      } else {
+        const leftCorner = faceLandmarks[61];
+        const rightCorner = faceLandmarks[291];
+        faceScale = Math.max(Math.hypot(rightCorner.x - leftCorner.x, rightCorner.y - leftCorner.y) * 2.2, 0.1);
+      }
 
-      rawMouthRatio = verticalDist / Math.max(horizontalDist, 0.001);
+      rawMouthRatio = innerLipDist / Math.max(faceScale, 0.05);
       isMouthOpen = rawMouthRatio >= GestureDetector.MOUTH_OPEN_THRESHOLD;
 
       if (this.mouthState === 'CLOSED') {

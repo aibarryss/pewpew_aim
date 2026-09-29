@@ -44,6 +44,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
   const isProcessingFaceRef = useRef<boolean>(false);
   const lastHandSendTimeRef = useRef<number>(0);
   const lastFaceDetectionTimeRef = useRef<number>(0);
+  const lastFaceTimestampRef = useRef<number>(0);
 
   const isMirroredRef = useRef<boolean>(isMirrored);
   const onHandUpdateRef = useRef(onHandUpdate);
@@ -53,6 +54,15 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [fps, setFps] = useState<number>(0);
   const [mouseSimMode, setMouseSimMode] = useState<boolean>(false);
+
+  // Runtime Diagnostic Overlay State
+  const [debugState, setDebugState] = useState({
+    faceDetected: false,
+    isMouthOpen: false,
+    mouthRatio: 0,
+    triggerShoot: false,
+  });
+  const lastDebugUpdateTimeRef = useRef<number>(0);
 
   const fpsCountRef = useRef({ frames: 0, lastTime: performance.now() });
   const detectorRef = useRef<GestureDetector>(new GestureDetector());
@@ -169,18 +179,28 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
         onHandUpdateRef.current(result, errors, correction);
         drawOverlay(result.landmarks, result, latestFaceLandmarksRef.current);
 
+        // Update real-time debug diagnostic overlay at ~10 Hz
+        if (now - lastDebugUpdateTimeRef.current >= 100) {
+          lastDebugUpdateTimeRef.current = now;
+          setDebugState({
+            faceDetected: !!latestFaceLandmarksRef.current,
+            isMouthOpen: result.isMouthOpen,
+            mouthRatio: result.mouthRatio,
+            triggerShoot: result.triggerShoot,
+          });
+        }
+
         // Guarantees isProcessingHandsRef is freed immediately upon frame completion
         isProcessingHandsRef.current = false;
       });
 
       handsInstanceRef.current = hands;
 
-      // Initialize Secondary Detector: MediaPipe FaceLandmarker in background
-      // Does NOT block startCamera or Hands pipeline
+      // Initialize Secondary Detector: MediaPipe FaceLandmarker with matching 1.0.1 wasm
       (async () => {
         try {
           const filesetResolver = await FilesetResolver.forVisionTasks(
-            'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+            'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm'
           );
 
           let landmarker: FaceLandmarker;
@@ -193,10 +213,9 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
               },
               runningMode: 'VIDEO',
               numFaces: 1,
-              outputFaceBlendshapes: true,
             });
           } catch {
-            // Fallback to CPU delegate if GPU delegate is unavailable
+            // Automatic fallback to CPU delegate if GPU is not available
             landmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
               baseOptions: {
                 modelAssetPath:
@@ -205,7 +224,6 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
               },
               runningMode: 'VIDEO',
               numFaces: 1,
-              outputFaceBlendshapes: true,
             });
           }
           faceLandmarkerRef.current = landmarker;
@@ -239,16 +257,18 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
             }
           }
 
-          // 2. Face: Secondary throttled detection (10–12 times per second, ~90ms)
+          // 2. Face: Secondary throttled detection (10–12 times per second, ~85ms)
           if (
             faceLandmarkerRef.current &&
             !isProcessingFaceRef.current &&
-            now - lastFaceDetectionTimeRef.current >= 90
+            now - lastFaceDetectionTimeRef.current >= 85
           ) {
             isProcessingFaceRef.current = true;
             lastFaceDetectionTimeRef.current = now;
             try {
-              const faceResult = faceLandmarkerRef.current.detectForVideo(videoRef.current, now);
+              const timestamp = Math.max(Math.round(now), lastFaceTimestampRef.current + 1);
+              lastFaceTimestampRef.current = timestamp;
+              const faceResult = faceLandmarkerRef.current.detectForVideo(videoRef.current, timestamp);
               if (faceResult.faceLandmarks && faceResult.faceLandmarks.length > 0) {
                 latestFaceLandmarksRef.current = faceResult.faceLandmarks[0] as unknown as Landmark[];
               } else {
@@ -337,7 +357,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
           indexFingerStraightness: 1.0,
           confidence: 1.0,
           isMouthOpen: isMouthSimOpen,
-          mouthRatio: isMouthSimOpen ? 0.6 : 0.05,
+          mouthRatio: isMouthSimOpen ? 0.25 : 0.02,
           triggerShoot: triggerOneShot,
         },
         [],
@@ -355,6 +375,12 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
       if (e.button === 0) {
         isMouthSimOpen = true;
         emitUpdate(lastX, lastY, true);
+        setDebugState({
+          faceDetected: true,
+          isMouthOpen: true,
+          mouthRatio: 0.25,
+          triggerShoot: true,
+        });
       }
     };
 
@@ -362,6 +388,12 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
       if (e.button === 0) {
         isMouthSimOpen = false;
         emitUpdate(lastX, lastY, false);
+        setDebugState((prev) => ({
+          ...prev,
+          isMouthOpen: false,
+          mouthRatio: 0.02,
+          triggerShoot: false,
+        }));
       }
     };
 
@@ -377,6 +409,12 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
       if (e.code === 'Space' && !isMouthSimOpen) {
         isMouthSimOpen = true;
         emitUpdate(lastX, lastY, true);
+        setDebugState({
+          faceDetected: true,
+          isMouthOpen: true,
+          mouthRatio: 0.25,
+          triggerShoot: true,
+        });
       }
     };
 
@@ -392,6 +430,12 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
       if (e.code === 'Space') {
         isMouthSimOpen = false;
         emitUpdate(lastX, lastY, false);
+        setDebugState((prev) => ({
+          ...prev,
+          isMouthOpen: false,
+          mouthRatio: 0.02,
+          triggerShoot: false,
+        }));
       }
     };
 
@@ -507,7 +551,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
   return (
     <div
       className={`relative overflow-hidden rounded-xl border border-cyan-500/30 bg-slate-900/90 shadow-2xl backdrop-blur-md transition-all ${
-        compact ? 'w-48 h-36 md:w-64 md:h-48' : 'w-full h-full'
+        compact ? 'w-52 h-40 md:w-64 md:h-48' : 'w-full h-full'
       }`}
     >
       <video
@@ -585,6 +629,32 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
               <FlipHorizontal className="w-3.5 h-3.5" />
             </button>
           )}
+        </div>
+      </div>
+
+      {/* Real-time Diagnostics Overlay (Requirement 3) */}
+      <div className="absolute top-9 left-2 bg-slate-950/90 border border-cyan-500/40 rounded-lg p-1.5 font-mono text-[9px] leading-snug text-cyan-300 pointer-events-none z-20 backdrop-blur-sm shadow-lg">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-slate-400">FACE:</span>
+          <span className={debugState.faceDetected ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+            {debugState.faceDetected ? 'YES' : 'NO'}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-slate-400">MOUTH:</span>
+          <span className={debugState.isMouthOpen ? 'text-pink-400 font-bold' : 'text-slate-300'}>
+            {debugState.isMouthOpen ? 'OPEN' : 'CLOSED'}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-slate-400">MOUTH_RATIO:</span>
+          <span className="text-cyan-200 font-bold">{debugState.mouthRatio.toFixed(3)}</span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-slate-400">TRIGGER:</span>
+          <span className={debugState.triggerShoot ? 'text-amber-300 font-black animate-pulse' : 'text-slate-400'}>
+            {debugState.triggerShoot ? 'YES' : 'NO'}
+          </span>
         </div>
       </div>
 
