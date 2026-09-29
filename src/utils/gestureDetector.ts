@@ -55,6 +55,13 @@ export class CursorSmoother {
 export class GestureDetector {
   private cursorSmoother = new CursorSmoother(0.5);
   private lastCursor: { x: number; y: number } | null = null;
+  private isPinching: boolean = false;
+  private pinchStartTime: number = 0;
+
+  // Pinch Hysteresis & Confirmation Constants
+  private static readonly PINCH_START_THRESHOLD = 0.36;
+  private static readonly PINCH_RELEASE_THRESHOLD = 0.50;
+  private static readonly PINCH_CONFIRMATION_MS = 140;
 
   // Error State Machine & Debouncers
   private activeError: GestureErrorFeedback | null = null;
@@ -83,6 +90,8 @@ export class GestureDetector {
     if (!landmarks || landmarks.length < 21) {
       this.cursorSmoother.reset();
       this.lastCursor = null;
+      this.isPinching = false;
+      this.pinchStartTime = 0;
       this.activeError = null;
       this.activeErrorType = null;
       this.bentFrameCount = 0;
@@ -149,19 +158,36 @@ export class GestureDetector {
     // Pinch distance
     const rawPinchDist = getDistance2D(thumbTip, indexTip);
     const normPinchDist = rawPinchDist / palmScale;
-    const isPinch = normPinchDist < 0.38;
 
     // Strict count of open fingers (0 to 5)
     const openFingersCount = [indexExtended, middleExtended, ringExtended, pinkyExtended, thumbExtended].filter(Boolean).length;
     
     // Strict 5 fingers for Shield Palm
-    const isOpenPalm = openFingersCount === 5 && !isPinch;
+    const isOpenPalm = openFingersCount === 5 && normPinchDist > 0.45;
 
     const foldedCount = [!indexExtended, !middleExtended, !ringExtended, !pinkyExtended].filter(Boolean).length;
     const isFist = foldedCount >= 4 && !thumbExtended && normPinchDist < 0.6;
 
     // Aiming: Index pointing forward, not a fist or open palm
     const isAiming = (indexExtended || indexStraightness > 0.65) && !isOpenPalm && !isFist && openFingersCount <= 3;
+
+    // =========================================================
+    // PINCH HYSTERESIS & TEMPORAL CONFIRMATION
+    // =========================================================
+    if (!this.isPinching) {
+      if (normPinchDist <= GestureDetector.PINCH_START_THRESHOLD && !isOpenPalm && !isFist) {
+        this.isPinching = true;
+        this.pinchStartTime = now;
+      }
+    } else {
+      if (normPinchDist >= GestureDetector.PINCH_RELEASE_THRESHOLD || isOpenPalm || isFist) {
+        this.isPinching = false;
+        this.pinchStartTime = 0;
+      }
+    }
+
+    // Intentional Pinch Confirmation (~140ms stable hold)
+    const isPinch = this.isPinching && (now - this.pinchStartTime >= GestureDetector.PINCH_CONFIRMATION_MS);
 
     let gesture: GestureType = 'IDLE';
     if (isPinch && (isAiming || indexExtended)) {
@@ -181,8 +207,9 @@ export class GestureDetector {
       rawCursorY = (middleMcp.y + wrist.y) / 2;
     }
 
+    // Lock cursor during pinch approach/action so aim stays on target
     let cursor: { x: number; y: number };
-    if (normPinchDist < 0.55 && !isOpenPalm && this.lastCursor !== null) {
+    if ((this.isPinching || normPinchDist < 0.52) && !isOpenPalm && !isFist && this.lastCursor !== null) {
       cursor = this.lastCursor;
     } else {
       cursor = this.cursorSmoother.update(rawCursorX, rawCursorY);

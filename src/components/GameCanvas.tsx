@@ -218,7 +218,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   // Trigger weapon shot
   const shoot = useCallback((cursorX: number, cursorY: number) => {
     const now = performance.now();
-    if (now - lastShotTimeRef.current < 200) return; // Fire rate limit (200ms)
+    if (now - lastShotTimeRef.current < 150) return; // Fire rate limit (150ms)
     lastShotTimeRef.current = now;
 
     soundManager.playShoot();
