@@ -60,6 +60,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const lastSpawnTimeRef = useRef<number>(0);
   const lastEmpTimeRef = useRef<number>(-10000);
   const lastEmpWarningTimeRef = useRef<number>(0);
+  const roundStartTimeRef = useRef<number>(0);
+  const hasSpawnedFirstShooterRef = useRef<boolean>(false);
 
   // Reset state on game start / restart
   useEffect(() => {
@@ -75,13 +77,47 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       screenShakeRef.current = 0;
       lastEmpTimeRef.current = -10000;
       lastEmpWarningTimeRef.current = 0;
+      roundStartTimeRef.current = performance.now();
+      hasSpawnedFirstShooterRef.current = false;
     }
   }, [gameActive]);
 
-  // Spawn a target
+  // Deterministic Spawn & Wave Director
   const spawnTarget = useCallback(() => {
-    const types: Target['type'][] = ['STANDARD', 'STANDARD', 'FAST', 'SHOOTER', 'GOLDEN', 'BOMB'];
-    const randType = types[Math.floor(Math.random() * types.length)];
+    const elapsed = (performance.now() - roundStartTimeRef.current) / 1000;
+
+    let randType: Target['type'] = 'STANDARD';
+
+    if (elapsed < 10) {
+      // 0–10s: Calm onboarding - only STANDARD targets
+      randType = 'STANDARD';
+    } else if (elapsed < 25) {
+      // 10–25s: Introduce SHOOTER + STANDARD (first SHOOTER guaranteed)
+      if (!hasSpawnedFirstShooterRef.current) {
+        randType = 'SHOOTER';
+        hasSpawnedFirstShooterRef.current = true;
+      } else {
+        const pool: Target['type'][] = ['STANDARD', 'STANDARD', 'SHOOTER'];
+        randType = pool[Math.floor(Math.random() * pool.length)];
+      }
+    } else if (elapsed < 40) {
+      // 25–40s: FAST + GOLDEN + BOMB + STANDARD (Cognitive choice & speed)
+      const pool: Target['type'][] = ['FAST', 'FAST', 'GOLDEN', 'BOMB', 'STANDARD'];
+      randType = pool[Math.floor(Math.random() * pool.length)];
+    } else if (elapsed < 55) {
+      // 40–55s: Threat Escalation - SHOOTER + FAST + BOMB + STANDARD
+      const hasActiveShooter = targetsRef.current.some((t) => t.type === 'SHOOTER' && t.health > 0);
+      if (!hasActiveShooter) {
+        randType = 'SHOOTER';
+      } else {
+        const pool: Target['type'][] = ['SHOOTER', 'FAST', 'BOMB', 'STANDARD'];
+        randType = pool[Math.floor(Math.random() * pool.length)];
+      }
+    } else {
+      // 55–60s: Climax Rush - only GOLDEN + FAST (No new BOMB or SHOOTER)
+      const pool: Target['type'][] = ['GOLDEN', 'GOLDEN', 'FAST', 'FAST'];
+      randType = pool[Math.floor(Math.random() * pool.length)];
+    }
 
     let radius = 0.055;
     let points = 100;
@@ -109,11 +145,20 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     const margin = 0.15;
     const x = margin + Math.random() * (1 - 2 * margin);
-    const y = margin + Math.random() * (1 - 2 * margin);
+    // Keep SHOOTER in upper region (y: 0.15 - 0.45) for natural overhead turret look
+    const y = randType === 'SHOOTER'
+      ? 0.15 + Math.random() * 0.30
+      : margin + Math.random() * (1 - 2 * margin);
 
     const angle = Math.random() * Math.PI * 2;
     const vx = Math.cos(angle) * speed;
     const vy = Math.sin(angle) * speed;
+
+    // First shooter starts with predictable 1.4s cooldown (~1.2-1.5s), subsequent 2.0-3.0s
+    const isFirstShooterSpawn = randType === 'SHOOTER' && elapsed < 25;
+    const shootCooldown = randType === 'SHOOTER'
+      ? (isFirstShooterSpawn ? 1400 : 2000 + Math.random() * 1000)
+      : undefined;
 
     const newTarget: Target = {
       id: Math.random().toString(36).substring(2, 9),
@@ -130,7 +175,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       duration: randType === 'GOLDEN' ? 5000 : 7000,
       scale: 0.1,
       pulsePhase: Math.random() * Math.PI,
-      shootCooldown: randType === 'SHOOTER' ? 2000 + Math.random() * 1500 : undefined,
+      shootCooldown,
     };
 
     targetsRef.current.push(newTarget);
@@ -338,9 +383,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       // Handle Game Logic if playing
       if (gameActiveRef.current) {
-        // Target Spawning
+        const now = performance.now();
+        const elapsedRoundTime = (now - roundStartTimeRef.current) / 1000;
+
+        // Target Spawning with gentle ramp-up
         const maxActiveTargets = gameModeRef.current === 'DRONE_DEFENSE' ? 6 : 5;
-        if (time - lastSpawnTimeRef.current > 1100 && targetsRef.current.length < maxActiveTargets) {
+        const spawnInterval = elapsedRoundTime > 40 ? 950 : 1150;
+
+        if (time - lastSpawnTimeRef.current > spawnInterval && targetsRef.current.length < maxActiveTargets) {
           spawnTarget();
           lastSpawnTimeRef.current = time;
         }
@@ -384,7 +434,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
 
         // Update Targets
-        const now = performance.now();
         targetsRef.current.forEach((t) => {
           if (t.health <= 0) return;
 
@@ -581,10 +630,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           ctx.fillStyle = '#f472b6';
           ctx.fill();
         } else if (t.type === 'SHOOTER') {
-          ctx.strokeStyle = '#ef4444';
-          ctx.lineWidth = 3.5;
-          ctx.shadowColor = '#ef4444';
-          ctx.shadowBlur = 16;
+          // Visual charging telegraph during ~1s before shooting
+          const isCharging = typeof t.shootCooldown === 'number' && t.shootCooldown <= 1000;
+          const chargeProgress = typeof t.shootCooldown === 'number' && isCharging 
+            ? Math.max(0, 1.0 - t.shootCooldown / 1000) 
+            : 0;
+
+          ctx.strokeStyle = isCharging ? '#ff3344' : '#ef4444';
+          ctx.lineWidth = isCharging ? 3.5 + chargeProgress * 2.5 : 3.5;
+          ctx.shadowColor = isCharging ? '#ff0033' : '#ef4444';
+          ctx.shadowBlur = isCharging ? 16 + chargeProgress * 20 : 16;
 
           ctx.beginPath();
           for (let i = 0; i < 6; i++) {
@@ -596,16 +651,36 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
           ctx.closePath();
           ctx.stroke();
-          ctx.fillStyle = 'rgba(239, 68, 68, 0.25)';
+          ctx.fillStyle = isCharging
+            ? `rgba(255, 40, 40, ${0.25 + chargeProgress * 0.35})`
+            : 'rgba(239, 68, 68, 0.25)';
           ctx.fill();
 
-          ctx.fillStyle = '#f87171';
-          ctx.fillRect(-3, 0, 6, r * 1.1);
+          // Barrel / muzzle aiming down
+          ctx.fillStyle = isCharging ? '#ff5555' : '#f87171';
+          ctx.fillRect(-3, 0, 6, r * 1.1 + (isCharging ? chargeProgress * 4 : 0));
 
+          // Core plasma node (pulsing when charging)
+          const coreRadius = isCharging
+            ? 5 + Math.sin(time * 0.02) * 2 + chargeProgress * 4
+            : 5;
           ctx.beginPath();
-          ctx.arc(0, 0, 5, 0, Math.PI * 2);
-          ctx.fillStyle = '#ff0000';
+          ctx.arc(0, 0, Math.max(2, coreRadius), 0, Math.PI * 2);
+          ctx.fillStyle = isCharging ? '#ffffff' : '#ff0000';
+          ctx.shadowColor = '#ff0044';
+          ctx.shadowBlur = isCharging ? 25 : 10;
           ctx.fill();
+
+          // Charging warning ring when close to firing
+          if (isCharging) {
+            ctx.beginPath();
+            ctx.arc(0, 0, r * (1.15 + Math.sin(time * 0.025) * 0.15), 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(255, 60, 60, ${0.4 + chargeProgress * 0.6})`;
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([4, 4]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
         } else if (t.type === 'GOLDEN') {
           ctx.strokeStyle = '#facc15';
           ctx.lineWidth = 3;
