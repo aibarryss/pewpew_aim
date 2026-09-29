@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Camera as CameraIcon, VideoOff, RefreshCw, FlipHorizontal, Eye, MousePointer } from 'lucide-react';
+import { FilesetResolver, FaceLandmarker } from '@mediapipe/tasks-vision';
 import { HandDetectionResult, GestureErrorFeedback, GestureCorrectionEvent, Landmark } from '../types/game';
 import { GestureDetector } from '../utils/gestureDetector';
 
@@ -37,8 +38,13 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animLoopRef = useRef<number | null>(null);
+
+  // Decoupled Processing Locks & Timestamps
   const isProcessingHandsRef = useRef<boolean>(false);
   const isProcessingFaceRef = useRef<boolean>(false);
+  const lastHandSendTimeRef = useRef<number>(0);
+  const lastFaceDetectionTimeRef = useRef<number>(0);
+
   const isMirroredRef = useRef<boolean>(isMirrored);
   const onHandUpdateRef = useRef(onHandUpdate);
 
@@ -51,7 +57,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
   const fpsCountRef = useRef({ frames: 0, lastTime: performance.now() });
   const detectorRef = useRef<GestureDetector>(new GestureDetector());
   const handsInstanceRef = useRef<unknown>(null);
-  const faceMeshInstanceRef = useRef<unknown>(null);
+  const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
   const latestFaceLandmarksRef = useRef<Landmark[] | null>(null);
   const mouseCleanupRef = useRef<(() => void) | null>(null);
 
@@ -63,26 +69,15 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
     onHandUpdateRef.current = onHandUpdate;
   }, [onHandUpdate]);
 
-  // Load MediaPipe scripts dynamically if missing from index.html
+  // Load MediaPipe Hands script dynamically if missing
   const ensureMediaPipeLoaded = async (): Promise<boolean> => {
-    const checkReady = () =>
-      typeof (window as unknown as { Hands?: unknown }).Hands === 'function' &&
-      typeof (window as unknown as { FaceMesh?: unknown }).FaceMesh === 'function';
-
+    const checkReady = () => typeof (window as unknown as { Hands?: unknown }).Hands === 'function';
     if (checkReady()) return true;
 
     if (!document.getElementById('mediapipe-hands-script')) {
       const script = document.createElement('script');
       script.id = 'mediapipe-hands-script';
       script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js';
-      script.crossOrigin = 'anonymous';
-      document.head.appendChild(script);
-    }
-
-    if (!document.getElementById('mediapipe-facemesh-script')) {
-      const script = document.createElement('script');
-      script.id = 'mediapipe-facemesh-script';
-      script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js';
       script.crossOrigin = 'anonymous';
       document.head.appendChild(script);
     }
@@ -96,7 +91,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
     return checkReady();
   };
 
-  // Start Camera Stream via getUserMedia (Runs only on mount or retry)
+  // Start Camera Stream via getUserMedia (Runs on mount or retry)
   const startCamera = async () => {
     setLoading(true);
     setErrorMessage(null);
@@ -104,7 +99,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
     try {
       const mpReady = await ensureMediaPipeLoaded();
       if (!mpReady) {
-        throw new Error('Не удалось загрузить модели MediaPipe (Hands / FaceMesh). Проверьте соединение.');
+        throw new Error('Не удалось загрузить MediaPipe Hands. Проверьте соединение.');
       }
 
       let stream: MediaStream;
@@ -131,16 +126,11 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
         await videoRef.current.play();
       }
 
+      // Initialize Primary Detector: MediaPipe Hands
       const windowWithMP = window as unknown as {
         Hands: new (config: { locateFile: (file: string) => string }) => {
           setOptions: (opts: Record<string, unknown>) => void;
           onResults: (cb: (results: { multiHandLandmarks?: Landmark[][] }) => void) => void;
-          send: (input: { image: HTMLVideoElement }) => Promise<void>;
-          close: () => void;
-        };
-        FaceMesh: new (config: { locateFile: (file: string) => string }) => {
-          setOptions: (opts: Record<string, unknown>) => void;
-          onResults: (cb: (results: { multiFaceLandmarks?: Landmark[][] }) => void) => void;
           send: (input: { image: HTMLVideoElement }) => Promise<void>;
           close: () => void;
         };
@@ -155,24 +145,6 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
         modelComplexity: 1,
         minDetectionConfidence: 0.6,
         minTrackingConfidence: 0.6,
-      });
-
-      const faceMesh = new windowWithMP.FaceMesh({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/${file}`,
-      });
-
-      faceMesh.setOptions({
-        maxNumFaces: 1,
-        refineLandmarks: false,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-      });
-
-      faceMesh.onResults((faceResults) => {
-        const rawFaceLandmarks = faceResults.multiFaceLandmarks && faceResults.multiFaceLandmarks.length > 0
-          ? faceResults.multiFaceLandmarks[0]
-          : null;
-        latestFaceLandmarksRef.current = rawFaceLandmarks;
       });
 
       hands.onResults((results) => {
@@ -193,35 +165,103 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
           latestFaceLandmarksRef.current,
           isMirroredRef.current
         );
+
         onHandUpdateRef.current(result, errors, correction);
         drawOverlay(result.landmarks, result, latestFaceLandmarksRef.current);
+
+        // Guarantees isProcessingHandsRef is freed immediately upon frame completion
+        isProcessingHandsRef.current = false;
       });
 
       handsInstanceRef.current = hands;
-      faceMeshInstanceRef.current = faceMesh;
 
+      // Initialize Secondary Detector: MediaPipe FaceLandmarker in background
+      // Does NOT block startCamera or Hands pipeline
+      (async () => {
+        try {
+          const filesetResolver = await FilesetResolver.forVisionTasks(
+            'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+          );
+
+          let landmarker: FaceLandmarker;
+          try {
+            landmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+              baseOptions: {
+                modelAssetPath:
+                  'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+                delegate: 'GPU',
+              },
+              runningMode: 'VIDEO',
+              numFaces: 1,
+              outputFaceBlendshapes: true,
+            });
+          } catch {
+            // Fallback to CPU delegate if GPU delegate is unavailable
+            landmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+              baseOptions: {
+                modelAssetPath:
+                  'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+                delegate: 'CPU',
+              },
+              runningMode: 'VIDEO',
+              numFaces: 1,
+              outputFaceBlendshapes: true,
+            });
+          }
+          faceLandmarkerRef.current = landmarker;
+        } catch (err) {
+          console.warn('FaceLandmarker optional loading failed, running with Hands only:', err);
+        }
+      })();
+
+      // Unified, Non-Blocking Frame Loop
       const processFrame = async () => {
+        const now = performance.now();
+
         if (videoRef.current && videoRef.current.readyState >= 2) {
+          // Watchdog: If Hands processing hung for > 400ms, force reset lock
+          if (isProcessingHandsRef.current && now - lastHandSendTimeRef.current > 400) {
+            isProcessingHandsRef.current = false;
+          }
+
+          // 1. Hands: Process on every available animation frame
           if (!isProcessingHandsRef.current && handsInstanceRef.current) {
             isProcessingHandsRef.current = true;
-            (handsInstanceRef.current as { send: (input: { image: HTMLVideoElement }) => Promise<void> })
-              .send({ image: videoRef.current })
-              .catch(() => {})
-              .finally(() => {
-                isProcessingHandsRef.current = false;
+            lastHandSendTimeRef.current = now;
+            try {
+              await (handsInstanceRef.current as { send: (input: { image: HTMLVideoElement }) => Promise<void> }).send({
+                image: videoRef.current,
               });
+            } catch {
+              // Ignore frame errors
+            } finally {
+              isProcessingHandsRef.current = false;
+            }
           }
 
-          if (!isProcessingFaceRef.current && faceMeshInstanceRef.current) {
+          // 2. Face: Secondary throttled detection (10–12 times per second, ~90ms)
+          if (
+            faceLandmarkerRef.current &&
+            !isProcessingFaceRef.current &&
+            now - lastFaceDetectionTimeRef.current >= 90
+          ) {
             isProcessingFaceRef.current = true;
-            (faceMeshInstanceRef.current as { send: (input: { image: HTMLVideoElement }) => Promise<void> })
-              .send({ image: videoRef.current })
-              .catch(() => {})
-              .finally(() => {
-                isProcessingFaceRef.current = false;
-              });
+            lastFaceDetectionTimeRef.current = now;
+            try {
+              const faceResult = faceLandmarkerRef.current.detectForVideo(videoRef.current, now);
+              if (faceResult.faceLandmarks && faceResult.faceLandmarks.length > 0) {
+                latestFaceLandmarksRef.current = faceResult.faceLandmarks[0] as unknown as Landmark[];
+              } else {
+                latestFaceLandmarksRef.current = null;
+              }
+            } catch {
+              // Face error NEVER locks or disrupts Hands
+            } finally {
+              isProcessingFaceRef.current = false;
+            }
           }
         }
+
         animLoopRef.current = requestAnimationFrame(processFrame);
       };
 
@@ -251,9 +291,9 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
           // ignore
         }
       }
-      if (faceMeshInstanceRef.current) {
+      if (faceLandmarkerRef.current) {
         try {
-          (faceMeshInstanceRef.current as { close: () => void }).close();
+          faceLandmarkerRef.current.close();
         } catch {
           // ignore
         }
@@ -386,7 +426,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
     const w = canvas.width;
     const h = canvas.height;
 
-    // Draw Mouth indicator on face
+    // Draw Mouth indicator on face if available
     if (faceLandmarks && faceLandmarks.length >= 292) {
       const upperLip = faceLandmarks[13];
       const lowerLip = faceLandmarks[14];
@@ -488,8 +528,8 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
       {loading && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/85 text-cyan-400 p-3 text-center z-20">
           <RefreshCw className="w-7 h-7 animate-spin mb-2 text-cyan-400" />
-          <p className="font-cyber text-xs font-semibold tracking-wider uppercase">Запуск камеры и AI моделей...</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">MediaPipe Hands + FaceMesh</p>
+          <p className="font-cyber text-xs font-semibold tracking-wider uppercase">Запуск камеры и нейросети...</p>
+          <p className="text-[10px] text-slate-400 mt-0.5">MediaPipe Hands Active</p>
         </div>
       )}
 
@@ -552,7 +592,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
         <span className="flex items-center gap-1">
           <CameraIcon className="w-3 h-3 text-cyan-400" /> AI Motion Cam
         </span>
-        <span className="font-mono text-cyan-400 font-semibold uppercase">Hands + Face Mesh</span>
+        <span className="font-mono text-cyan-400 font-semibold uppercase">Hands + Face Vision</span>
       </div>
     </div>
   );
