@@ -54,31 +54,34 @@ export class CursorSmoother {
 
 export class GestureDetector {
   private cursorSmoother = new CursorSmoother(0.5);
-  private lastCursor: { x: number; y: number } | null = null;
-  private isPinching: boolean = false;
-  private pinchStartTime: number = 0;
 
-  // Pinch Hysteresis & Confirmation Constants
-  private static readonly PINCH_START_THRESHOLD = 0.36;
-  private static readonly PINCH_RELEASE_THRESHOLD = 0.50;
-  private static readonly PINCH_CONFIRMATION_MS = 140;
+  // Mouth-Open Shooting State Machine Constants
+  public static readonly MOUTH_OPEN_THRESHOLD = 0.35;
+  public static readonly MOUTH_RELEASE_THRESHOLD = 0.20;
+  public static readonly MOUTH_CONFIRMATION_MS = 120;
+  public static readonly MOUTH_POST_SHOT_DEBOUNCE_MS = 120;
+
+  private mouthState: 'CLOSED' | 'CONFIRMING' | 'LOCKED' = 'CLOSED';
+  private mouthConfirmStartTime: number = 0;
+  private lastMouthShotTime: number = 0;
 
   // Error State Machine & Debouncers
   private activeError: GestureErrorFeedback | null = null;
   private activeErrorType: GestureErrorFeedback['type'] | null = null;
-  private activeErrorStartTime: number = 0;
   private lastErrorEndTime: Map<string, number> = new Map();
 
   // Frame counters for stability
   private bentFrameCount: number = 0;
   private edgeFrameCount: number = 0;
-  private weakPinchFrameCount: number = 0;
-  private halfPalmFrameCount: number = 0;
   private straightFrameCount: number = 0;
   private centerFrameCount: number = 0;
   private fullPalmFrameCount: number = 0;
 
-  public analyze(landmarks: Landmark[] | null, isMirrored: boolean = true): {
+  public analyze(
+    landmarks: Landmark[] | null,
+    faceLandmarks: Landmark[] | null = null,
+    isMirrored: boolean = true
+  ): {
     result: HandDetectionResult;
     errors: GestureErrorFeedback[];
     correction: GestureCorrectionEvent | null;
@@ -87,17 +90,66 @@ export class GestureDetector {
     let correction: GestureCorrectionEvent | null = null;
     const now = performance.now();
 
+    // =========================================================
+    // 1. MOUTH-OPEN SHOOTING DETECTION & TEMPORAL STATE MACHINE
+    // =========================================================
+    let rawMouthRatio = 0;
+    let isMouthOpen = false;
+    let triggerShoot = false;
+
+    if (faceLandmarks && faceLandmarks.length >= 292) {
+      // MediaPipe FaceMesh standard landmarks:
+      // 13 = upper inner lip, 14 = lower inner lip
+      // 61 = left mouth corner, 291 = right mouth corner
+      const upperLip = faceLandmarks[13];
+      const lowerLip = faceLandmarks[14];
+      const leftCorner = faceLandmarks[61];
+      const rightCorner = faceLandmarks[291];
+
+      const verticalDist = Math.hypot(upperLip.x - lowerLip.x, upperLip.y - lowerLip.y);
+      const horizontalDist = Math.hypot(leftCorner.x - rightCorner.x, leftCorner.y - rightCorner.y);
+
+      rawMouthRatio = verticalDist / Math.max(horizontalDist, 0.001);
+      isMouthOpen = rawMouthRatio >= GestureDetector.MOUTH_OPEN_THRESHOLD;
+
+      if (this.mouthState === 'CLOSED') {
+        if (rawMouthRatio >= GestureDetector.MOUTH_OPEN_THRESHOLD) {
+          this.mouthState = 'CONFIRMING';
+          this.mouthConfirmStartTime = now;
+        }
+      } else if (this.mouthState === 'CONFIRMING') {
+        if (rawMouthRatio < GestureDetector.MOUTH_RELEASE_THRESHOLD) {
+          this.mouthState = 'CLOSED';
+          this.mouthConfirmStartTime = 0;
+        } else if (now - this.mouthConfirmStartTime >= GestureDetector.MOUTH_CONFIRMATION_MS) {
+          triggerShoot = true;
+          this.mouthState = 'LOCKED';
+          this.lastMouthShotTime = now;
+        }
+      } else if (this.mouthState === 'LOCKED') {
+        if (rawMouthRatio < GestureDetector.MOUTH_RELEASE_THRESHOLD) {
+          if (now - this.lastMouthShotTime >= GestureDetector.MOUTH_POST_SHOT_DEBOUNCE_MS) {
+            this.mouthState = 'CLOSED';
+            this.mouthConfirmStartTime = 0;
+          }
+        }
+      }
+    } else {
+      // Face temporarily out of frame: safely reset mouth state
+      this.mouthState = 'CLOSED';
+      this.mouthConfirmStartTime = 0;
+    }
+
+    // =========================================================
+    // 2. HAND LANDMARKS & GESTURE ANALYSIS
+    // =========================================================
     if (!landmarks || landmarks.length < 21) {
       this.cursorSmoother.reset();
-      this.lastCursor = null;
-      this.isPinching = false;
-      this.pinchStartTime = 0;
       this.activeError = null;
       this.activeErrorType = null;
       this.bentFrameCount = 0;
       this.edgeFrameCount = 0;
       this.straightFrameCount = 0;
-      this.halfPalmFrameCount = 0;
       this.fullPalmFrameCount = 0;
 
       return {
@@ -105,7 +157,7 @@ export class GestureDetector {
           detected: false,
           landmarks: null,
           cursor: null,
-          gesture: 'IDLE',
+          gesture: isMouthOpen ? 'MOUTH_SHOOT' : 'IDLE',
           pinchDistance: 1,
           isOpenPalm: false,
           isFist: false,
@@ -114,6 +166,9 @@ export class GestureDetector {
           openFingersCount: 0,
           indexFingerStraightness: 0,
           confidence: 0,
+          isMouthOpen,
+          mouthRatio: rawMouthRatio,
+          triggerShoot,
         },
         errors: [],
         correction: null,
@@ -171,31 +226,14 @@ export class GestureDetector {
     // Aiming: Index pointing forward, not a fist or open palm
     const isAiming = (indexExtended || indexStraightness > 0.65) && !isOpenPalm && !isFist && openFingersCount <= 3;
 
-    // =========================================================
-    // PINCH HYSTERESIS & TEMPORAL CONFIRMATION
-    // =========================================================
-    if (!this.isPinching) {
-      if (normPinchDist <= GestureDetector.PINCH_START_THRESHOLD && !isOpenPalm && !isFist) {
-        this.isPinching = true;
-        this.pinchStartTime = now;
-      }
-    } else {
-      if (normPinchDist >= GestureDetector.PINCH_RELEASE_THRESHOLD || isOpenPalm || isFist) {
-        this.isPinching = false;
-        this.pinchStartTime = 0;
-      }
-    }
-
-    // Intentional Pinch Confirmation (~140ms stable hold)
-    const isPinch = this.isPinching && (now - this.pinchStartTime >= GestureDetector.PINCH_CONFIRMATION_MS);
-
+    // Gesture State: Priority order: SHIELD > FIST > MOUTH_SHOOT > AIMING > IDLE
     let gesture: GestureType = 'IDLE';
-    if (isPinch && (isAiming || indexExtended)) {
-      gesture = 'PINCH_SHOOT';
-    } else if (isOpenPalm) {
+    if (isOpenPalm) {
       gesture = 'SHIELD_PALM';
     } else if (isFist) {
       gesture = 'POWER_FIST';
+    } else if (isMouthOpen || triggerShoot) {
+      gesture = 'MOUTH_SHOOT';
     } else if (isAiming) {
       gesture = 'AIMING';
     }
@@ -207,22 +245,16 @@ export class GestureDetector {
       rawCursorY = (middleMcp.y + wrist.y) / 2;
     }
 
-    // Lock cursor during pinch approach/action so aim stays on target
-    let cursor: { x: number; y: number };
-    if ((this.isPinching || normPinchDist < 0.52) && !isOpenPalm && !isFist && this.lastCursor !== null) {
-      cursor = this.lastCursor;
-    } else {
-      cursor = this.cursorSmoother.update(rawCursorX, rawCursorY);
-      this.lastCursor = cursor;
-    }
+    // Cursor follows index finger smoothly with zero influence from mouth opening
+    const cursor = this.cursorSmoother.update(rawCursorX, rawCursorY);
 
     // =========================================================
-    // BIOMECHANICAL ERROR STATE MACHINE
+    // 3. BIOMECHANICAL ERROR STATE MACHINE
     // =========================================================
     const isAtEdge = wrist.x < 0.1 || wrist.x > 0.9 || wrist.y < 0.08 || wrist.y > 0.92;
     const isIndexBent = isAiming && indexAngle < 142;
     const isIndexWellStraightened = isAiming && indexAngle > 165;
-    const isPartialPalm = openFingersCount >= 3 && openFingersCount < 5 && !isAiming && !isFist && !isPinch;
+    const isPartialPalm = openFingersCount >= 3 && openFingersCount < 5 && !isAiming && !isFist;
 
     // 1. Check Index Finger Straightness Error & Resolution
     if (this.activeErrorType === 'INDEX_BENT') {
@@ -251,7 +283,6 @@ export class GestureDetector {
         this.bentFrameCount++;
         if (this.bentFrameCount >= 6) {
           this.activeErrorType = 'INDEX_BENT';
-          this.activeErrorStartTime = now;
           this.activeError = {
             id: 'index_bent',
             type: 'INDEX_BENT',
@@ -260,63 +291,55 @@ export class GestureDetector {
             severity: 'warning',
             timestamp: now,
           };
+          this.bentFrameCount = 0;
         }
       }
-    } else {
-      this.bentFrameCount = 0;
     }
 
-    // 2. Check Partial Shield Palm Error (3-4 fingers open instead of 5)
+    // 2. Check Shield Palm Completion
     if (this.activeErrorType === 'PALM_HALF_CLOSED') {
       if (isOpenPalm) {
         this.fullPalmFrameCount++;
-        if (this.fullPalmFrameCount >= 3) {
+        if (this.fullPalmFrameCount >= 4) {
           correction = {
             id: 'palm_resolved',
             type: 'PALM_HALF_CLOSED',
-            resolvedMessage: 'Силовой щит 5/5 полностью развернут! (+100 PTS)',
-            scoreBonus: 100,
+            resolvedMessage: 'Силовой щит полностью раскрыт! (+150 PTS)',
+            scoreBonus: 150,
             timestamp: now,
           };
           this.lastErrorEndTime.set('PALM_HALF_CLOSED', now);
           this.activeError = null;
           this.activeErrorType = null;
           this.fullPalmFrameCount = 0;
-          this.halfPalmFrameCount = 0;
         }
       } else {
         this.fullPalmFrameCount = 0;
       }
     } else if (!this.activeErrorType && isPartialPalm) {
       const lastEnded = this.lastErrorEndTime.get('PALM_HALF_CLOSED') || 0;
-      if (now - lastEnded > 4000) {
-        this.halfPalmFrameCount++;
-        if (this.halfPalmFrameCount >= 6) {
-          this.activeErrorType = 'PALM_HALF_CLOSED';
-          this.activeErrorStartTime = now;
-          this.activeError = {
-            id: 'palm_half',
-            type: 'PALM_HALF_CLOSED',
-            message: `Неполный силовой щит (раскрыто ${openFingersCount}/5 пальцев)`,
-            suggestion: 'Раскрой все 5 пальцев ладони для включения силового поля',
-            severity: 'warning',
-            timestamp: now,
-          };
-        }
+      if (now - lastEnded > 4500) {
+        this.activeErrorType = 'PALM_HALF_CLOSED';
+        this.activeError = {
+          id: 'palm_half',
+          type: 'PALM_HALF_CLOSED',
+          message: `Щит не активирован (открыто ${openFingersCount} пальцев)`,
+          suggestion: 'Раскрой все 5 пальцев шире и поверни ладонь к камере',
+          severity: 'warning',
+          timestamp: now,
+        };
       }
-    } else {
-      this.halfPalmFrameCount = 0;
     }
 
-    // 3. Check Edge of Frame Error & Resolution
+    // 3. Edge of frame warning
     if (this.activeErrorType === 'EDGE_OF_FRAME') {
-      if (!isAtEdge && wrist.x >= 0.2 && wrist.x <= 0.8) {
+      if (!isAtEdge) {
         this.centerFrameCount++;
-        if (this.centerFrameCount >= 5) {
+        if (this.centerFrameCount >= 4) {
           correction = {
-            id: 'edge_resolved',
+            id: 'center_resolved',
             type: 'EDGE_OF_FRAME',
-            resolvedMessage: 'Рука возвращена в активную зону! (+50 PTS)',
+            resolvedMessage: 'Рука возвращена в рабочую зону! (+50 PTS)',
             scoreBonus: 50,
             timestamp: now,
           };
@@ -331,70 +354,25 @@ export class GestureDetector {
       }
     } else if (!this.activeErrorType && isAtEdge) {
       const lastEnded = this.lastErrorEndTime.get('EDGE_OF_FRAME') || 0;
-      if (now - lastEnded > 5000) {
+      if (now - lastEnded > 4000) {
         this.edgeFrameCount++;
-        if (this.edgeFrameCount >= 8) {
+        if (this.edgeFrameCount >= 6) {
           this.activeErrorType = 'EDGE_OF_FRAME';
-          this.activeErrorStartTime = now;
           this.activeError = {
-            id: 'edge_error',
+            id: 'edge_frame',
             type: 'EDGE_OF_FRAME',
-            message: 'Рука у края кадра',
-            suggestion: 'Смести руку ближе к центру экрана для точного захвата',
-            severity: 'warning',
+            message: 'Рука на краю обзора камеры',
+            suggestion: 'Смести руку ближе к центру для стабильного трекинга',
+            severity: 'info',
             timestamp: now,
           };
+          this.edgeFrameCount = 0;
         }
       }
-    } else {
-      this.edgeFrameCount = 0;
     }
 
-    // 4. Check Weak Pinch Attempt
-    if (!this.activeErrorType && isAiming && normPinchDist > 0.45 && normPinchDist < 0.65) {
-      const lastEnded = this.lastErrorEndTime.get('PINCH_WEAK') || 0;
-      if (now - lastEnded > 5000) {
-        this.weakPinchFrameCount++;
-        if (this.weakPinchFrameCount >= 6) {
-          this.activeErrorType = 'PINCH_WEAK';
-          this.activeErrorStartTime = now;
-          this.activeError = {
-            id: 'pinch_weak',
-            type: 'PINCH_WEAK',
-            message: 'Слабое сжатие для выстрела',
-            suggestion: 'Соедини подушечки большого и указательного пальцев ближе (щелчок)',
-            severity: 'warning',
-            timestamp: now,
-          };
-        }
-      }
-    } else if (this.activeErrorType === 'PINCH_WEAK') {
-      if (isPinch) {
-        correction = {
-          id: 'pinch_resolved',
-          type: 'PINCH_WEAK',
-          resolvedMessage: 'Идеальный щелчок выстрела! (+100 PTS)',
-          scoreBonus: 100,
-          timestamp: now,
-        };
-        this.lastErrorEndTime.set('PINCH_WEAK', now);
-        this.activeError = null;
-        this.activeErrorType = null;
-        this.weakPinchFrameCount = 0;
-      }
-    } else {
-      this.weakPinchFrameCount = 0;
-    }
-
-    // Active error timeout
     if (this.activeError) {
-      if (now - this.activeErrorStartTime > 6500) {
-        this.lastErrorEndTime.set(this.activeErrorType || 'TIMEOUT', now);
-        this.activeError = null;
-        this.activeErrorType = null;
-      } else {
-        errors.push(this.activeError);
-      }
+      errors.push(this.activeError);
     }
 
     return {
@@ -407,10 +385,13 @@ export class GestureDetector {
         isOpenPalm,
         isFist,
         isAiming,
-        isPinch,
+        isPinch: false, // Pinching is decoupled from shooting
         openFingersCount,
         indexFingerStraightness: indexStraightness,
         confidence: 0.95,
+        isMouthOpen,
+        mouthRatio: rawMouthRatio,
+        triggerShoot,
       },
       errors,
       correction,

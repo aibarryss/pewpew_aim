@@ -4,7 +4,7 @@ export interface Landmark {
   z: number;
 }
 
-export type GestureType = 'IDLE' | 'AIMING' | 'PINCH_SHOOT' | 'SHIELD_PALM' | 'POWER_FIST';
+export type GestureType = 'IDLE' | 'AIMING' | 'MOUTH_SHOOT' | 'PINCH_SHOOT' | 'SHIELD_PALM' | 'POWER_FIST';
 
 export interface HandDetectionResult {
   detected: boolean;
@@ -19,6 +19,9 @@ export interface HandDetectionResult {
   openFingersCount: number;
   indexFingerStraightness: number;
   confidence: number;
+  isMouthOpen: boolean;
+  mouthRatio: number;
+  triggerShoot: boolean;
 }
 
 export interface GestureErrorFeedback {

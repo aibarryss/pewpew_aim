@@ -47,7 +47,7 @@ export function App() {
   const [showSkeleton, setShowSkeleton] = useState<boolean>(true);
   const [isMirrored, setIsMirrored] = useState<boolean>(true);
 
-  // Hand tracking state
+  // Hand & Face tracking state
   const [handResult, setHandResult] = useState<HandDetectionResult>({
     detected: false,
     landmarks: null,
@@ -61,6 +61,9 @@ export function App() {
     openFingersCount: 0,
     indexFingerStraightness: 0,
     confidence: 0,
+    isMouthOpen: false,
+    mouthRatio: 0,
+    triggerShoot: false,
   });
 
   const [currentErrors, setCurrentErrors] = useState<GestureErrorFeedback[]>([]);

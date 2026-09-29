@@ -37,7 +37,8 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animLoopRef = useRef<number | null>(null);
-  const isProcessingRef = useRef<boolean>(false);
+  const isProcessingHandsRef = useRef<boolean>(false);
+  const isProcessingFaceRef = useRef<boolean>(false);
   const isMirroredRef = useRef<boolean>(isMirrored);
   const onHandUpdateRef = useRef(onHandUpdate);
 
@@ -50,6 +51,8 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
   const fpsCountRef = useRef({ frames: 0, lastTime: performance.now() });
   const detectorRef = useRef<GestureDetector>(new GestureDetector());
   const handsInstanceRef = useRef<unknown>(null);
+  const faceMeshInstanceRef = useRef<unknown>(null);
+  const latestFaceLandmarksRef = useRef<Landmark[] | null>(null);
   const mouseCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -62,13 +65,24 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
 
   // Load MediaPipe scripts dynamically if missing from index.html
   const ensureMediaPipeLoaded = async (): Promise<boolean> => {
-    const checkReady = () => typeof (window as unknown as { Hands?: unknown }).Hands === 'function';
+    const checkReady = () =>
+      typeof (window as unknown as { Hands?: unknown }).Hands === 'function' &&
+      typeof (window as unknown as { FaceMesh?: unknown }).FaceMesh === 'function';
+
     if (checkReady()) return true;
 
     if (!document.getElementById('mediapipe-hands-script')) {
       const script = document.createElement('script');
       script.id = 'mediapipe-hands-script';
       script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js';
+      script.crossOrigin = 'anonymous';
+      document.head.appendChild(script);
+    }
+
+    if (!document.getElementById('mediapipe-facemesh-script')) {
+      const script = document.createElement('script');
+      script.id = 'mediapipe-facemesh-script';
+      script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js';
       script.crossOrigin = 'anonymous';
       document.head.appendChild(script);
     }
@@ -90,7 +104,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
     try {
       const mpReady = await ensureMediaPipeLoaded();
       if (!mpReady) {
-        throw new Error('Не удалось загрузить модель MediaPipe. Проверьте соединение.');
+        throw new Error('Не удалось загрузить модели MediaPipe (Hands / FaceMesh). Проверьте соединение.');
       }
 
       let stream: MediaStream;
@@ -124,6 +138,12 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
           send: (input: { image: HTMLVideoElement }) => Promise<void>;
           close: () => void;
         };
+        FaceMesh: new (config: { locateFile: (file: string) => string }) => {
+          setOptions: (opts: Record<string, unknown>) => void;
+          onResults: (cb: (results: { multiFaceLandmarks?: Landmark[][] }) => void) => void;
+          send: (input: { image: HTMLVideoElement }) => Promise<void>;
+          close: () => void;
+        };
       };
 
       const hands = new windowWithMP.Hands({
@@ -135,6 +155,24 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
         modelComplexity: 1,
         minDetectionConfidence: 0.6,
         minTrackingConfidence: 0.6,
+      });
+
+      const faceMesh = new windowWithMP.FaceMesh({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/${file}`,
+      });
+
+      faceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: false,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      });
+
+      faceMesh.onResults((faceResults) => {
+        const rawFaceLandmarks = faceResults.multiFaceLandmarks && faceResults.multiFaceLandmarks.length > 0
+          ? faceResults.multiFaceLandmarks[0]
+          : null;
+        latestFaceLandmarksRef.current = rawFaceLandmarks;
       });
 
       hands.onResults((results) => {
@@ -150,25 +188,38 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
           ? results.multiHandLandmarks[0]
           : null;
 
-        const { result, errors, correction } = detectorRef.current.analyze(rawLandmarks, isMirroredRef.current);
+        const { result, errors, correction } = detectorRef.current.analyze(
+          rawLandmarks,
+          latestFaceLandmarksRef.current,
+          isMirroredRef.current
+        );
         onHandUpdateRef.current(result, errors, correction);
-        drawOverlay(result.landmarks, result);
-        isProcessingRef.current = false;
+        drawOverlay(result.landmarks, result, latestFaceLandmarksRef.current);
       });
 
       handsInstanceRef.current = hands;
+      faceMeshInstanceRef.current = faceMesh;
 
       const processFrame = async () => {
-        if (videoRef.current && videoRef.current.readyState >= 2 && handsInstanceRef.current) {
-          if (!isProcessingRef.current) {
-            isProcessingRef.current = true;
-            try {
-              await (handsInstanceRef.current as { send: (input: { image: HTMLVideoElement }) => Promise<void> }).send({
-                image: videoRef.current,
+        if (videoRef.current && videoRef.current.readyState >= 2) {
+          if (!isProcessingHandsRef.current && handsInstanceRef.current) {
+            isProcessingHandsRef.current = true;
+            (handsInstanceRef.current as { send: (input: { image: HTMLVideoElement }) => Promise<void> })
+              .send({ image: videoRef.current })
+              .catch(() => {})
+              .finally(() => {
+                isProcessingHandsRef.current = false;
               });
-            } catch {
-              isProcessingRef.current = false;
-            }
+          }
+
+          if (!isProcessingFaceRef.current && faceMeshInstanceRef.current) {
+            isProcessingFaceRef.current = true;
+            (faceMeshInstanceRef.current as { send: (input: { image: HTMLVideoElement }) => Promise<void> })
+              .send({ image: videoRef.current })
+              .catch(() => {})
+              .finally(() => {
+                isProcessingFaceRef.current = false;
+              });
           }
         }
         animLoopRef.current = requestAnimationFrame(processFrame);
@@ -200,6 +251,13 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
           // ignore
         }
       }
+      if (faceMeshInstanceRef.current) {
+        try {
+          (faceMeshInstanceRef.current as { close: () => void }).close();
+        } catch {
+          // ignore
+        }
+      }
       if (mouseCleanupRef.current) {
         mouseCleanupRef.current();
       }
@@ -216,60 +274,85 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
     setErrorMessage(null);
     setLoading(false);
 
-    let isMouseDown = false;
     let isShiftDown = false;
     let isCtrlDown = false;
+    let isMouthSimOpen = false;
 
-    const emitUpdate = (x: number, y: number) => {
+    let lastX = 0.5;
+    let lastY = 0.5;
+
+    const emitUpdate = (x: number, y: number, triggerOneShot: boolean = false) => {
       onHandUpdateRef.current(
         {
           detected: true,
           landmarks: null,
           cursor: { x, y },
-          gesture: isCtrlDown ? 'POWER_FIST' : isShiftDown ? 'SHIELD_PALM' : isMouseDown ? 'PINCH_SHOOT' : 'AIMING',
-          pinchDistance: isMouseDown ? 0.1 : 0.8,
+          gesture: isCtrlDown ? 'POWER_FIST' : isShiftDown ? 'SHIELD_PALM' : isMouthSimOpen ? 'MOUTH_SHOOT' : 'AIMING',
+          pinchDistance: 1.0,
           isOpenPalm: isShiftDown,
           isFist: isCtrlDown,
           isAiming: !isShiftDown && !isCtrlDown,
-          isPinch: isMouseDown,
+          isPinch: false,
           openFingersCount: isShiftDown ? 5 : isCtrlDown ? 0 : 1,
           indexFingerStraightness: 1.0,
           confidence: 1.0,
+          isMouthOpen: isMouthSimOpen,
+          mouthRatio: isMouthSimOpen ? 0.6 : 0.05,
+          triggerShoot: triggerOneShot,
         },
         [],
         null
       );
     };
 
-    let lastX = 0.5;
-    let lastY = 0.5;
-
     const handleMouseMove = (e: MouseEvent) => {
       lastX = e.clientX / window.innerWidth;
       lastY = e.clientY / window.innerHeight;
-      emitUpdate(lastX, lastY);
+      emitUpdate(lastX, lastY, false);
     };
 
-    const handleMouseDown = () => {
-      isMouseDown = true;
-      emitUpdate(lastX, lastY);
+    const handleMouseDown = (e: MouseEvent) => {
+      if (e.button === 0) {
+        isMouthSimOpen = true;
+        emitUpdate(lastX, lastY, true);
+      }
     };
 
-    const handleMouseUp = () => {
-      isMouseDown = false;
-      emitUpdate(lastX, lastY);
+    const handleMouseUp = (e: MouseEvent) => {
+      if (e.button === 0) {
+        isMouthSimOpen = false;
+        emitUpdate(lastX, lastY, false);
+      }
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Shift') isShiftDown = true;
-      if (e.key === 'Control' || e.key === 'Alt') isCtrlDown = true;
-      emitUpdate(lastX, lastY);
+      if (e.key === 'Shift') {
+        isShiftDown = true;
+        emitUpdate(lastX, lastY, false);
+      }
+      if (e.key === 'Control' || e.key === 'Alt') {
+        isCtrlDown = true;
+        emitUpdate(lastX, lastY, false);
+      }
+      if (e.code === 'Space' && !isMouthSimOpen) {
+        isMouthSimOpen = true;
+        emitUpdate(lastX, lastY, true);
+      }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.key === 'Shift') isShiftDown = false;
-      if (e.key === 'Control' || e.key === 'Alt') isCtrlDown = false;
-      emitUpdate(lastX, lastY);
+      if (e.key === 'Shift') {
+        isShiftDown = false;
+        emitUpdate(lastX, lastY, false);
+      }
+      if (e.key === 'Control' || e.key === 'Alt') {
+        isCtrlDown = false;
+        emitUpdate(lastX, lastY, false);
+      }
+      if (e.code === 'Space') {
+        isMouthSimOpen = false;
+        emitUpdate(lastX, lastY, false);
+      }
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -287,21 +370,59 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
     };
   };
 
-  const drawOverlay = (landmarks: Landmark[] | null, result: HandDetectionResult) => {
+  const drawOverlay = (
+    landmarks: Landmark[] | null,
+    result: HandDetectionResult,
+    faceLandmarks: Landmark[] | null
+  ) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!landmarks || !showSkeleton) return;
+    if (!showSkeleton) return;
 
     const w = canvas.width;
     const h = canvas.height;
 
+    // Draw Mouth indicator on face
+    if (faceLandmarks && faceLandmarks.length >= 292) {
+      const upperLip = faceLandmarks[13];
+      const lowerLip = faceLandmarks[14];
+      const leftCorner = faceLandmarks[61];
+      const rightCorner = faceLandmarks[291];
+
+      const mx = ((leftCorner.x + rightCorner.x) / 2) * w;
+      const my = ((upperLip.y + lowerLip.y) / 2) * h;
+      const mouthWidth = Math.hypot(leftCorner.x - rightCorner.x, leftCorner.y - rightCorner.y) * w;
+      const mouthHeight = Math.hypot(upperLip.x - lowerLip.x, upperLip.y - lowerLip.y) * h;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(mx, my, Math.max(8, mouthWidth / 2), Math.max(4, mouthHeight / 2), 0, 0, Math.PI * 2);
+      ctx.strokeStyle = result.isMouthOpen ? '#ec4899' : '#06b6d4';
+      ctx.lineWidth = result.isMouthOpen ? 2.5 : 1.5;
+      ctx.shadowColor = result.isMouthOpen ? '#ec4899' : '#06b6d4';
+      ctx.shadowBlur = result.isMouthOpen ? 12 : 4;
+      ctx.fillStyle = result.isMouthOpen ? 'rgba(236, 72, 153, 0.3)' : 'rgba(6, 182, 212, 0.1)';
+      ctx.fill();
+      ctx.stroke();
+
+      if (result.isMouthOpen) {
+        ctx.font = 'bold 9px Orbitron, sans-serif';
+        ctx.fillStyle = '#f472b6';
+        ctx.textAlign = 'center';
+        ctx.fillText('MOUTH OPEN 😮', mx, my - mouthHeight / 2 - 6);
+      }
+      ctx.restore();
+    }
+
+    if (!landmarks) return;
+
     let strokeColor = '#06b6d4';
     let jointColor = '#22d3ee';
-    if (result.gesture === 'PINCH_SHOOT') {
+    if (result.gesture === 'MOUTH_SHOOT' || result.isMouthOpen) {
       strokeColor = '#ec4899';
       jointColor = '#f472b6';
     } else if (result.gesture === 'SHIELD_PALM') {
@@ -330,9 +451,9 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
       const px = p.x * w;
       const py = p.y * h;
       ctx.beginPath();
-      if (idx === 8 || idx === 4) {
+      if (idx === 8) {
         ctx.arc(px, py, 6, 0, 2 * Math.PI);
-        ctx.fillStyle = idx === 8 ? '#f43f5e' : '#eab308';
+        ctx.fillStyle = '#06b6d4';
       } else {
         ctx.arc(px, py, 3.5, 0, 2 * Math.PI);
         ctx.fillStyle = jointColor;
@@ -367,8 +488,8 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
       {loading && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/85 text-cyan-400 p-3 text-center z-20">
           <RefreshCw className="w-7 h-7 animate-spin mb-2 text-cyan-400" />
-          <p className="font-cyber text-xs font-semibold tracking-wider uppercase">Запуск камеры и нейросети...</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">Разрешите доступ к камере в браузере</p>
+          <p className="font-cyber text-xs font-semibold tracking-wider uppercase">Запуск камеры и AI моделей...</p>
+          <p className="text-[10px] text-slate-400 mt-0.5">MediaPipe Hands + FaceMesh</p>
         </div>
       )}
 
@@ -431,7 +552,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
         <span className="flex items-center gap-1">
           <CameraIcon className="w-3 h-3 text-cyan-400" /> AI Motion Cam
         </span>
-        <span className="font-mono text-cyan-400 font-semibold uppercase">21 Joint Vision</span>
+        <span className="font-mono text-cyan-400 font-semibold uppercase">Hands + Face Mesh</span>
       </div>
     </div>
   );

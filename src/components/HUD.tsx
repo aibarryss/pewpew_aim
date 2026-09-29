@@ -44,9 +44,15 @@ export const HUD: React.FC<HUDProps> = ({
     }
 
     switch (handResult.gesture) {
+      case 'MOUTH_SHOOT':
+        return {
+          label: '😮 ВЫСТРЕЛ (ОТКРЫТ РОТ)',
+          color: 'border-pink-500 bg-pink-950/80 text-pink-300 glow-magenta animate-pulse',
+          icon: Crosshair,
+        };
       case 'PINCH_SHOOT':
         return {
-          label: '💥 ВЫСТРЕЛ (TRIGGER)',
+          label: '😮 ВЫСТРЕЛ (ОТКРЫТ РОТ)',
           color: 'border-pink-500 bg-pink-950/80 text-pink-300 glow-magenta animate-pulse',
           icon: Crosshair,
         };

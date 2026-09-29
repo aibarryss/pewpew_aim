@@ -395,13 +395,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           lastSpawnTimeRef.current = time;
         }
 
-        // Gesture Action: Shoot on Pinch Edge
+        // Action: Shoot on Mouth Open Trigger (confirmed 1-shot per opening)
         if (curHand.detected && curHand.cursor) {
-          const isPinchNow = curHand.gesture === 'PINCH_SHOOT' || (curHand.isPinch && curHand.isAiming);
-          if (isPinchNow && !wasPinchingRef.current) {
+          if (curHand.triggerShoot) {
             shoot(curHand.cursor.x, curHand.cursor.y);
           }
-          wasPinchingRef.current = isPinchNow;
 
           // Power Fist Charging Check with 10s cooldown
           if (curHand.gesture === 'POWER_FIST') {
@@ -844,7 +842,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
         // Reticle Sight
         let reticleColor = '#06b6d4';
-        if (curHand.gesture === 'PINCH_SHOOT' || curHand.isPinch) reticleColor = '#ec4899';
+        if (curHand.gesture === 'MOUTH_SHOOT' || curHand.isMouthOpen) reticleColor = '#ec4899';
         else if (curHand.gesture === 'POWER_FIST') reticleColor = '#f59e0b';
         else if (curHand.gesture === 'SHIELD_PALM') reticleColor = '#10b981';
 
@@ -878,7 +876,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.fill();
 
         // Laser beam guide if aiming
-        if (curHand.isAiming || curHand.gesture === 'PINCH_SHOOT') {
+        if (curHand.isAiming || curHand.gesture === 'MOUTH_SHOOT') {
           ctx.beginPath();
           ctx.setLineDash([6, 6]);
           ctx.strokeStyle = 'rgba(6, 182, 212, 0.4)';
