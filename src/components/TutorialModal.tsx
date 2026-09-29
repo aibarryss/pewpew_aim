@@ -201,28 +201,35 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
                 <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800">
                   <span className="font-bold text-rose-400 block">⚠️ Изгиб указательного пальца</span>
                   <p className="text-slate-300 mt-1">
-                    «Выпрями указательный палец жестче — палец согнут на 35°, лазерный прицел сбивается».
+                    «Выпрями палец жестче — лазерный прицел сбивается при изгибе».
                   </p>
                 </div>
 
                 <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800">
-                  <span className="font-bold text-rose-400 block">⚠️ Неполное сжатие выстрела</span>
+                  <span className="font-bold text-rose-400 block">⚠️ Слабое открытие рта</span>
                   <p className="text-slate-300 mt-1">
-                    «Соедини подушечки большого и указательного пальцев ближе (щелчок/щипок) для выстрела».
+                    «Открой рот увереннее — сейчас амплитуда слишком мала для выстрела».
                   </p>
                 </div>
 
                 <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800">
                   <span className="font-bold text-rose-400 block">⚠️ Неполный силовой щит</span>
                   <p className="text-slate-300 mt-1">
-                    «Раскрой все 5 пальцев шире и направь ладонь в камеру, чтобы активировать барьер».
+                    «Раскрой все 5 пальцев шире и поверни ладонь к камере, чтобы активировать барьер».
                   </p>
                 </div>
 
                 <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800">
-                  <span className="font-bold text-rose-400 block">⚠️ Рука у границы кадра / резкость</span>
+                  <span className="font-bold text-rose-400 block">⚠️ Рука у границы кадра</span>
                   <p className="text-slate-300 mt-1">
-                    «Смести руку ближе к центру экрана / двигай рукой плавнее для стабильного захвата».
+                    «Смести руку ближе к центру экрана для стабильного трекинга».
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800 md:col-span-2">
+                  <span className="font-bold text-cyan-400 block">ℹ️ Резкие рывки руки</span>
+                  <p className="text-slate-300 mt-1">
+                    «Двигай рукой плавнее для стабильного прицеливания».
                   </p>
                 </div>
               </div>

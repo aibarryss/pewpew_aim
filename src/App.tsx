@@ -197,7 +197,7 @@ export function App() {
             className="font-cyber text-sm sm:text-lg text-slate-300 max-w-xl mt-2 leading-relaxed"
             style={{ textShadow: '0 0 8px rgba(0, 255, 255, 0.5)' }}
           >
-            Бесконтактный шутер с компьютерным зрением. Управляй прицелом кончиком пальца, стреляй щипком, выставляй силовой щит ладонью.
+            Бесконтактный шутер с компьютерным зрением. Управляй прицелом кончиком пальца, стреляй открытием рта, выставляй силовой щит ладонью.
           </p>
 
           {/* Key Gesture Badges */}
@@ -207,8 +207,8 @@ export function App() {
               <span className="text-slate-400 text-[11px]">Прицел указательным пальцем</span>
             </div>
             <div className="p-2.5 rounded-xl bg-slate-900/80 border border-pink-500/30 text-pink-300">
-              <span className="block font-bold text-sm">💥 Pinch</span>
-              <span className="text-slate-400 text-[11px]">Лазерный выстрел (щипок)</span>
+              <span className="block font-bold text-sm">😮 Mouth</span>
+              <span className="text-slate-400 text-[11px]">Лазерный выстрел (открой рот)</span>
             </div>
             <div className="p-2.5 rounded-xl bg-slate-900/80 border border-emerald-500/30 text-emerald-300">
               <span className="block font-bold text-sm">🛡️ Palm</span>
