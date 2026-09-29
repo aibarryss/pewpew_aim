@@ -494,8 +494,30 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             if (distToShield <= shieldRadius + p.radius) {
               soundManager.playShieldDeflect();
               p.deflected = true;
-              p.vx = -p.vx * 1.5;
-              p.vy = -p.vy * 1.5;
+
+              // Aim deflected projectile toward active SHOOTER or upward away from player
+              let targetShooter: Target | null = null;
+              let minDist = Infinity;
+              targetsRef.current.forEach((t) => {
+                if (t.type === 'SHOOTER' && t.health > 0) {
+                  const d = Math.hypot(t.x - p.x, t.y - p.y);
+                  if (d < minDist) {
+                    minDist = d;
+                    targetShooter = t;
+                  }
+                }
+              });
+
+              if (targetShooter) {
+                const angle = Math.atan2((targetShooter as Target).y - p.y, (targetShooter as Target).x - p.x);
+                const returnSpeed = 0.0032;
+                p.vx = Math.cos(angle) * returnSpeed;
+                p.vy = Math.sin(angle) * returnSpeed;
+              } else {
+                p.vx = -p.vx * 1.5;
+                p.vy = -Math.abs(p.vy) * 1.5;
+              }
+
               createExplosion(p.x, p.y, '#10b981', 16);
               addFloatingText('🛡️ BLOCKED!', shieldX, shieldY - 0.08, '#10b981', 1.3);
 
