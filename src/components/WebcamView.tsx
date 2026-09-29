@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Camera as CameraIcon, VideoOff, RefreshCw, FlipHorizontal, Eye, MousePointer } from 'lucide-react';
 import { FilesetResolver, FaceLandmarker } from '@mediapipe/tasks-vision';
 import { HandDetectionResult, GestureErrorFeedback, GestureCorrectionEvent, Landmark } from '../types/game';
@@ -26,6 +26,25 @@ const HAND_CONNECTIONS = [
   [0, 17],
 ];
 
+// Helper: Calculate scale and offset matching CSS object-cover for video inside container
+export function computeCoverTransform(
+  videoWidth: number,
+  videoHeight: number,
+  containerWidth: number,
+  containerHeight: number
+): { scale: number; offsetX: number; offsetY: number } {
+  if (videoWidth <= 0 || videoHeight <= 0 || containerWidth <= 0 || containerHeight <= 0) {
+    return { scale: 1, offsetX: 0, offsetY: 0 };
+  }
+  const scale = Math.max(containerWidth / videoWidth, containerHeight / videoHeight);
+  const displayedVideoWidth = videoWidth * scale;
+  const displayedVideoHeight = videoHeight * scale;
+  const offsetX = (containerWidth - displayedVideoWidth) / 2;
+  const offsetY = (containerHeight - displayedVideoHeight) / 2;
+
+  return { scale, offsetX, offsetY };
+}
+
 export const WebcamView: React.FC<WebcamViewProps> = ({
   onHandUpdate,
   showSkeleton = true,
@@ -34,6 +53,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
   onToggleSkeleton,
   compact = false,
 }) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -69,6 +89,43 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
   useEffect(() => {
     onHandUpdateRef.current = onHandUpdate;
   }, [onHandUpdate]);
+
+  const updateCanvasDimensions = useCallback(() => {
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+    if (!container || !canvas) return;
+
+    const width = Math.round(container.clientWidth);
+    const height = Math.round(container.clientHeight);
+
+    if (width > 0 && height > 0) {
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    updateCanvasDimensions();
+    const container = containerRef.current;
+    if (!container) return;
+
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => {
+        updateCanvasDimensions();
+      });
+      ro.observe(container);
+    }
+
+    window.addEventListener('resize', updateCanvasDimensions);
+
+    return () => {
+      if (ro) ro.disconnect();
+      window.removeEventListener('resize', updateCanvasDimensions);
+    };
+  }, [updateCanvasDimensions]);
 
   // Load MediaPipe Hands script dynamically if missing
   const ensureMediaPipeLoaded = async (): Promise<boolean> => {
@@ -125,6 +182,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
+        updateCanvasDimensions();
       }
 
       // Initialize Primary Detector: MediaPipe Hands
@@ -416,6 +474,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
     faceLandmarks: Landmark[] | null
   ) => {
     const canvas = canvasRef.current;
+    const video = videoRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -423,8 +482,20 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!showSkeleton) return;
 
-    const w = canvas.width;
-    const h = canvas.height;
+    const containerW = canvas.width;
+    const containerH = canvas.height;
+
+    // Do not draw until video intrinsic dimensions are ready
+    if (!video || !video.videoWidth || !video.videoHeight || containerW <= 0 || containerH <= 0) {
+      return;
+    }
+
+    const videoW = video.videoWidth;
+    const videoH = video.videoHeight;
+    const { scale, offsetX, offsetY } = computeCoverTransform(videoW, videoH, containerW, containerH);
+
+    const toScreenX = (normX: number) => normX * videoW * scale + offsetX;
+    const toScreenY = (normY: number) => normY * videoH * scale + offsetY;
 
     // Draw Mouth indicator on face if available
     if (faceLandmarks && faceLandmarks.length >= 292) {
@@ -433,10 +504,19 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
       const leftCorner = faceLandmarks[61];
       const rightCorner = faceLandmarks[291];
 
-      const mx = ((leftCorner.x + rightCorner.x) / 2) * w;
-      const my = ((upperLip.y + lowerLip.y) / 2) * h;
-      const mouthWidth = Math.hypot(leftCorner.x - rightCorner.x, leftCorner.y - rightCorner.y) * w;
-      const mouthHeight = Math.hypot(upperLip.x - lowerLip.x, upperLip.y - lowerLip.y) * h;
+      // Mirror face X if camera preview is mirrored
+      const rawLeftX = isMirroredRef.current ? 1.0 - leftCorner.x : leftCorner.x;
+      const rawRightX = isMirroredRef.current ? 1.0 - rightCorner.x : rightCorner.x;
+      const rawCenterX = (rawLeftX + rawRightX) / 2;
+      const rawCenterY = (upperLip.y + lowerLip.y) / 2;
+
+      const mx = toScreenX(rawCenterX);
+      const my = toScreenY(rawCenterY);
+
+      const rawMouthWidth = Math.hypot(leftCorner.x - rightCorner.x, leftCorner.y - rightCorner.y);
+      const rawMouthHeight = Math.hypot(upperLip.x - lowerLip.x, upperLip.y - lowerLip.y);
+      const mouthWidth = rawMouthWidth * videoW * scale;
+      const mouthHeight = rawMouthHeight * videoH * scale;
 
       ctx.save();
       ctx.beginPath();
@@ -453,7 +533,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
         ctx.font = 'bold 9px Orbitron, sans-serif';
         ctx.fillStyle = '#f472b6';
         ctx.textAlign = 'center';
-        ctx.fillText('MOUTH OPEN 😮', mx, my - mouthHeight / 2 - 6);
+        ctx.fillText('MOUTH OPEN 😮', mx, my - Math.max(4, mouthHeight / 2) - 6);
       }
       ctx.restore();
     }
@@ -482,14 +562,14 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
       const p1 = landmarks[i];
       const p2 = landmarks[j];
       ctx.beginPath();
-      ctx.moveTo(p1.x * w, p1.y * h);
-      ctx.lineTo(p2.x * w, p2.y * h);
+      ctx.moveTo(toScreenX(p1.x), toScreenY(p1.y));
+      ctx.lineTo(toScreenX(p2.x), toScreenY(p2.y));
       ctx.stroke();
     });
 
     landmarks.forEach((p, idx) => {
-      const px = p.x * w;
-      const py = p.y * h;
+      const px = toScreenX(p.x);
+      const py = toScreenY(p.y);
       ctx.beginPath();
       if (idx === 8) {
         ctx.arc(px, py, 6, 0, 2 * Math.PI);
@@ -506,12 +586,14 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
 
   return (
     <div
+      ref={containerRef}
       className={`relative overflow-hidden rounded-xl border border-cyan-500/30 bg-slate-900/90 shadow-2xl backdrop-blur-md transition-all ${
         compact ? 'w-64 h-48 md:w-80 md:h-60' : 'w-full h-full'
       }`}
     >
       <video
         ref={videoRef}
+        onLoadedMetadata={updateCanvasDimensions}
         autoPlay
         playsInline
         muted
@@ -520,8 +602,6 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
 
       <canvas
         ref={canvasRef}
-        width={320}
-        height={240}
         className="absolute inset-0 w-full h-full pointer-events-none"
       />
 
