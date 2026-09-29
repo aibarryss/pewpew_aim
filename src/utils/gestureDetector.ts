@@ -54,6 +54,7 @@ export class CursorSmoother {
 
 export class GestureDetector {
   private cursorSmoother = new CursorSmoother(0.5);
+  private lastCursor: { x: number; y: number } | null = null;
 
   // Error State Machine & Debouncers
   private activeError: GestureErrorFeedback | null = null;
@@ -81,6 +82,7 @@ export class GestureDetector {
 
     if (!landmarks || landmarks.length < 21) {
       this.cursorSmoother.reset();
+      this.lastCursor = null;
       this.activeError = null;
       this.activeErrorType = null;
       this.bentFrameCount = 0;
@@ -178,7 +180,14 @@ export class GestureDetector {
       rawCursorX = (middleMcp.x + wrist.x) / 2;
       rawCursorY = (middleMcp.y + wrist.y) / 2;
     }
-    const cursor = this.cursorSmoother.update(rawCursorX, rawCursorY);
+
+    let cursor: { x: number; y: number };
+    if (normPinchDist < 0.55 && !isOpenPalm && this.lastCursor !== null) {
+      cursor = this.lastCursor;
+    } else {
+      cursor = this.cursorSmoother.update(rawCursorX, rawCursorY);
+      this.lastCursor = cursor;
+    }
 
     // =========================================================
     // BIOMECHANICAL ERROR STATE MACHINE

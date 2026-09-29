@@ -15,7 +15,6 @@ interface GameCanvasProps {
   gameActive: boolean;
   gameMode: GameMode;
   onStatsUpdate: (updater: (prev: GameStats) => GameStats) => void;
-  onGameOver: () => void;
 }
 
 export const GameCanvas: React.FC<GameCanvasProps> = ({
@@ -23,7 +22,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   gameActive,
   gameMode,
   onStatsUpdate,
-  onGameOver,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
@@ -31,7 +29,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   // Stable Refs for Props to isolate the 60fps Game Loop
   const handResultRef = useRef<HandDetectionResult>(handResult);
   const onStatsUpdateRef = useRef(onStatsUpdate);
-  const onGameOverRef = useRef(onGameOver);
   const gameActiveRef = useRef(gameActive);
   const gameModeRef = useRef(gameMode);
 
@@ -42,10 +39,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   useEffect(() => {
     onStatsUpdateRef.current = onStatsUpdate;
   }, [onStatsUpdate]);
-
-  useEffect(() => {
-    onGameOverRef.current = onGameOver;
-  }, [onGameOver]);
 
   useEffect(() => {
     gameActiveRef.current = gameActive;
@@ -65,6 +58,25 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const powerFistChargeRef = useRef<number>(0);
   const screenShakeRef = useRef<number>(0);
   const lastSpawnTimeRef = useRef<number>(0);
+  const lastEmpTimeRef = useRef<number>(-10000);
+  const lastEmpWarningTimeRef = useRef<number>(0);
+
+  // Reset state on game start / restart
+  useEffect(() => {
+    if (gameActive) {
+      targetsRef.current = [];
+      projectilesRef.current = [];
+      particlesRef.current = [];
+      floatingTextsRef.current = [];
+      powerFistChargeRef.current = 0;
+      wasPinchingRef.current = false;
+      lastShotTimeRef.current = 0;
+      lastSpawnTimeRef.current = 0;
+      screenShakeRef.current = 0;
+      lastEmpTimeRef.current = -10000;
+      lastEmpWarningTimeRef.current = 0;
+    }
+  }, [gameActive]);
 
   // Spawn a target
   const spawnTarget = useCallback(() => {
@@ -188,6 +200,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const remainingTargets: Target[] = [];
 
     targetsRef.current.forEach((t) => {
+      if (t.health <= 0) return; // Skip already dead targets
+
       const dist = Math.hypot(t.x - cursorX, t.y - cursorY);
       if (dist <= t.radius && !hitSomething) {
         hitSomething = true;
@@ -270,17 +284,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
   // Trigger Power EMP Shockwave (Curled Fist)
   const triggerEMPShockwave = useCallback(() => {
+    lastEmpTimeRef.current = performance.now();
     soundManager.playPowerActivate();
     screenShakeRef.current = 15;
 
-    const destroyed = targetsRef.current.filter((t) => t.type !== 'BOMB');
+    const destroyed = targetsRef.current.filter((t) => t.type !== 'BOMB' && t.health > 0);
     const gained = destroyed.reduce((acc, t) => acc + t.points, 0);
 
     destroyed.forEach((t) => {
       createExplosion(t.x, t.y, '#38bdf8', 30);
     });
 
-    targetsRef.current = targetsRef.current.filter((t) => t.type === 'BOMB');
+    targetsRef.current = targetsRef.current.filter((t) => t.type === 'BOMB' && t.health > 0);
     projectilesRef.current = []; // Wipe all enemy bullets
 
     addFloatingText(`⚡ EMP BLAST! +${gained}`, 0.5, 0.4, '#38bdf8', 1.8);
@@ -338,12 +353,20 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
           wasPinchingRef.current = isPinchNow;
 
-          // Power Fist Charging Check
+          // Power Fist Charging Check with 10s cooldown
           if (curHand.gesture === 'POWER_FIST') {
-            powerFistChargeRef.current += dt;
-            if (powerFistChargeRef.current >= 900) {
-              triggerEMPShockwave();
+            if (time - lastEmpTimeRef.current < 10000) {
               powerFistChargeRef.current = 0;
+              if (time - lastEmpWarningTimeRef.current >= 1000) {
+                lastEmpWarningTimeRef.current = time;
+                addFloatingText('EMP RECHARGING', curHand.cursor.x, curHand.cursor.y - 0.08, '#f59e0b', 1.0);
+              }
+            } else {
+              powerFistChargeRef.current += dt;
+              if (powerFistChargeRef.current >= 900) {
+                triggerEMPShockwave();
+                powerFistChargeRef.current = 0;
+              }
             }
           } else {
             powerFistChargeRef.current = Math.max(0, powerFistChargeRef.current - dt * 1.5);
@@ -363,6 +386,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         // Update Targets
         const now = performance.now();
         targetsRef.current.forEach((t) => {
+          if (t.health <= 0) return;
+
           if (t.scale < 1.0) {
             t.scale = Math.min(1.0, t.scale + dt * 0.0035);
           }
@@ -375,13 +400,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           if (t.x - t.radius < 0.05 || t.x + t.radius > 0.95) t.vx *= -1;
           if (t.y - t.radius < 0.05 || t.y + t.radius > 0.95) t.vy *= -1;
 
-          // Shooter AI: shoot plasma orb at player
+          // Shooter AI: shoot plasma orb at player defense zone (y=1.0)
           if (t.type === 'SHOOTER' && t.shootCooldown !== undefined) {
             t.shootCooldown -= dt;
             if (t.shootCooldown <= 0) {
               t.shootCooldown = 2600 + Math.random() * 1200;
-              const targetX = curHand.cursor ? curHand.cursor.x : 0.5;
-              const targetY = curHand.cursor ? curHand.cursor.y : 0.7;
+              const targetX = curHand.cursor?.x ?? 0.5;
+              const targetY = 1.0;
               const angle = Math.atan2(targetY - t.y, targetX - t.x);
               const pSpeed = 0.0016;
 
@@ -393,14 +418,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
                 vy: Math.sin(angle) * pSpeed,
                 radius: 0.02,
                 damage: 20,
+                deflected: false,
                 createdAt: now,
               });
             }
           }
         });
 
-        // Filter expired targets
-        targetsRef.current = targetsRef.current.filter((t) => now - t.createdAt < t.duration);
+        // Filter expired and dead targets
+        targetsRef.current = targetsRef.current.filter((t) => t.health > 0 && now - t.createdAt < t.duration);
 
         // Update Projectiles
         const activeProjectiles: EnemyProjectile[] = [];
@@ -413,13 +439,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           p.x += p.vx * (dt / 16);
           p.y += p.vy * (dt / 16);
 
-          // Check Shield Deflect
-          if (isShieldActive) {
+          // Check Shield Deflect (only if not already deflected)
+          if (isShieldActive && !p.deflected) {
             const distToShield = Math.hypot(p.x - shieldX, p.y - shieldY);
             if (distToShield <= shieldRadius + p.radius) {
               soundManager.playShieldDeflect();
-              p.vx = -p.vx * 2.2;
-              p.vy = -p.vy * 2.2;
+              p.deflected = true;
+              p.vx = -p.vx * 1.5;
+              p.vy = -p.vy * 1.5;
               createExplosion(p.x, p.y, '#10b981', 16);
               addFloatingText('🛡️ BLOCKED!', shieldX, shieldY - 0.08, '#10b981', 1.3);
 
@@ -433,11 +460,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             }
           }
 
-          // Check Deflected Projectile hitting Shooter Target
-          if (p.vx < 0 || p.vy < 0) {
+          // Check Deflected Projectile hitting Shooter Target (Counter Hit)
+          if (p.deflected) {
             let hitTarget = false;
             targetsRef.current.forEach((t) => {
-              if (t.type === 'SHOOTER') {
+              if (t.type === 'SHOOTER' && t.health > 0 && !hitTarget) {
                 const dist = Math.hypot(t.x - p.x, t.y - p.y);
                 if (dist <= t.radius + p.radius) {
                   hitTarget = true;
@@ -453,20 +480,22 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
                 }
               }
             });
-            if (hitTarget) return;
+            if (hitTarget) {
+              // Immediately purge the destroyed target and consume the projectile
+              targetsRef.current = targetsRef.current.filter((t) => t.health > 0);
+              return;
+            }
           }
 
-          // Check Player Damage
+          // Check Player Damage or Offscreen
           if (p.x < -0.05 || p.x > 1.05 || p.y < -0.05 || p.y > 1.05) {
-            // Out of screen
-          } else if (p.y > 0.88 && !isShieldActive) {
+            // Out of screen -> removed
+          } else if (p.y > 0.88 && !p.deflected && !isShieldActive) {
             soundManager.playExplosion();
             screenShakeRef.current = 10;
             onStatsUpdateRef.current((prev) => {
+              if (prev.health <= 0) return prev;
               const nextHp = Math.max(0, prev.health - p.damage);
-              if (nextHp <= 0) {
-                onGameOverRef.current();
-              }
               return { ...prev, health: nextHp, currentCombo: 0 };
             });
             addFloatingText(`-${p.damage} HP!`, 0.5, 0.8, '#f43f5e', 1.4);
@@ -488,20 +517,22 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       particlesRef.current = particlesRef.current.filter((p) => p.life < p.maxLife);
 
       // Update Floating Texts
+      const now = performance.now();
       floatingTextsRef.current.forEach((ft) => {
         ft.y -= 0.0006 * (dt / 16);
         const age = now - ft.createdAt;
         ft.alpha = Math.max(0, 1.0 - age / 1200);
       });
-      const now = performance.now();
       floatingTextsRef.current = floatingTextsRef.current.filter((ft) => now - ft.createdAt < 1200);
 
       // ==========================================
       // RENDER CANVAS OBJECTS
       // ==========================================
 
-      // 1. Render Targets
+      // 1. Render Targets (only live targets)
       targetsRef.current.forEach((t) => {
+        if (t.health <= 0) return;
+
         const tx = t.x * width;
         const ty = t.y * height;
         const r = t.radius * Math.min(width, height) * t.scale;
@@ -625,8 +656,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.save();
         ctx.beginPath();
         ctx.arc(px, py, pr, 0, Math.PI * 2);
-        ctx.fillStyle = p.vx < 0 || p.vy < 0 ? '#34d399' : '#f43f5e';
-        ctx.shadowColor = p.vx < 0 || p.vy < 0 ? '#10b981' : '#e11d48';
+        ctx.fillStyle = p.deflected ? '#34d399' : '#f43f5e';
+        ctx.shadowColor = p.deflected ? '#10b981' : '#e11d48';
         ctx.shadowBlur = 15;
         ctx.fill();
         ctx.restore();

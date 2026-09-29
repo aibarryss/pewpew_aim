@@ -144,10 +144,11 @@ export function App() {
     return () => clearInterval(timer);
   }, [gameState]);
 
-  // Handle Game Over
-  const handleGameOver = useCallback(() => {
-    setGameState('GAMEOVER');
-  }, []);
+  useEffect(() => {
+    if (gameState === 'PLAYING' && stats.health <= 0) {
+      setGameState('GAMEOVER');
+    }
+  }, [gameState, stats.health]);
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-950 text-slate-100 cyber-grid select-none">
@@ -161,7 +162,6 @@ export function App() {
         gameActive={gameState === 'PLAYING'}
         gameMode={gameMode}
         onStatsUpdate={setStats}
-        onGameOver={handleGameOver}
       />
 
       {/* Main HUD overlay during game */}

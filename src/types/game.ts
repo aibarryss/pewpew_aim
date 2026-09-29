@@ -66,6 +66,7 @@ export interface EnemyProjectile {
   vy: number;
   radius: number;
   damage: number;
+  deflected: boolean;
   createdAt: number;
 }
 
