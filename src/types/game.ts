@@ -97,8 +97,6 @@ export interface FloatingText {
   scale: number;
 }
 
-export type GameMode = 'TARGET_RUSH' | 'DRONE_DEFENSE';
-
 export interface GameStats {
   score: number;
   shotsFired: number;
@@ -120,7 +118,6 @@ export interface LeaderboardEntry {
   id: string;
   playerName: string;
   score: number;
-  mode: GameMode;
   accuracy: number;
   maxCombo: number;
   errorsCorrected: number;

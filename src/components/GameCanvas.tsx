@@ -6,21 +6,18 @@ import {
   Particle,
   FloatingText,
   GameStats,
-  GameMode,
 } from '../types/game';
 import { soundManager } from '../utils/audio';
 
 interface GameCanvasProps {
   handResult: HandDetectionResult;
   gameActive: boolean;
-  gameMode: GameMode;
   onStatsUpdate: (updater: (prev: GameStats) => GameStats) => void;
 }
 
 export const GameCanvas: React.FC<GameCanvasProps> = ({
   handResult,
   gameActive,
-  gameMode,
   onStatsUpdate,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -31,7 +28,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   handResultRef.current = handResult; // Always keep fresh synchronously
   const onStatsUpdateRef = useRef(onStatsUpdate);
   const gameActiveRef = useRef(gameActive);
-  const gameModeRef = useRef(gameMode);
   const lastKnownCursorRef = useRef<{ x: number; y: number }>({ x: 0.5, y: 0.5 });
   const wasTriggerShootRef = useRef<boolean>(false);
 
@@ -42,10 +38,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   useEffect(() => {
     gameActiveRef.current = gameActive;
   }, [gameActive]);
-
-  useEffect(() => {
-    gameModeRef.current = gameMode;
-  }, [gameMode]);
 
   // Gameplay State inside Refs
   const targetsRef = useRef<Target[]>([]);
@@ -386,7 +378,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         const elapsedRoundTime = (now - roundStartTimeRef.current) / 1000;
 
         // Target Spawning with gentle ramp-up
-        const maxActiveTargets = gameModeRef.current === 'DRONE_DEFENSE' ? 6 : 5;
+        const maxActiveTargets = 6;
         const spawnInterval = elapsedRoundTime > 40 ? 950 : 1150;
 
         if (time - lastSpawnTimeRef.current > spawnInterval && targetsRef.current.length < maxActiveTargets) {

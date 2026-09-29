@@ -6,12 +6,11 @@ import {
   Activity,
   CheckCircle2,
 } from 'lucide-react';
-import { GameStats, GameMode, LeaderboardEntry } from '../types/game';
+import { GameStats, LeaderboardEntry } from '../types/game';
 
 interface GameOverModalProps {
   isOpen: boolean;
   stats: GameStats;
-  gameMode: GameMode;
   onRestart: () => void;
   onOpenTutorial: () => void;
 }
@@ -21,7 +20,6 @@ const LEADERBOARD_STORAGE_KEY = 'pewpew_aim_leaderboard_v1';
 export const GameOverModal: React.FC<GameOverModalProps> = ({
   isOpen,
   stats,
-  gameMode,
   onRestart,
   onOpenTutorial,
 }) => {
@@ -34,12 +32,12 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
     try {
       const raw = localStorage.getItem(LEADERBOARD_STORAGE_KEY);
       if (raw) {
-        setLeaderboard(JSON.parse(raw));
+        setLeaderboard(JSON.parse(raw) as LeaderboardEntry[]);
       } else {
         const defaults: LeaderboardEntry[] = [
-          { id: '1', playerName: 'CyberSniper', score: 8400, mode: 'DRONE_DEFENSE', accuracy: 88, maxCombo: 14, errorsCorrected: 6, date: '28.09' },
-          { id: '2', playerName: 'AimGod_KZ', score: 6200, mode: 'TARGET_RUSH', accuracy: 82, maxCombo: 9, errorsCorrected: 4, date: '28.09' },
-          { id: '3', playerName: 'NeonHunter', score: 4950, mode: 'DRONE_DEFENSE', accuracy: 75, maxCombo: 7, errorsCorrected: 3, date: '28.09' },
+          { id: '1', playerName: 'CyberSniper', score: 8400, accuracy: 88, maxCombo: 14, errorsCorrected: 6, date: '28.09' },
+          { id: '2', playerName: 'AimGod_KZ', score: 6200, accuracy: 82, maxCombo: 9, errorsCorrected: 4, date: '28.09' },
+          { id: '3', playerName: 'NeonHunter', score: 4950, accuracy: 75, maxCombo: 7, errorsCorrected: 3, date: '28.09' },
         ];
         setLeaderboard(defaults);
         localStorage.setItem(LEADERBOARD_STORAGE_KEY, JSON.stringify(defaults));
@@ -92,7 +90,6 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
       id: Math.random().toString(36).substring(2, 9),
       playerName: playerName.trim(),
       score: stats.score,
-      mode: gameMode,
       accuracy: stats.accuracy,
       maxCombo: stats.maxCombo,
       errorsCorrected: stats.errorsCorrected,
@@ -232,8 +229,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
                 >
                   <div className="flex items-center gap-2">
                     <span className="font-mono font-bold w-4 text-center">#{idx + 1}</span>
-                    <span className="font-semibold text-white truncate max-w-[120px]">{entry.playerName}</span>
-                    <span className="text-[10px] text-slate-500 hidden sm:inline">({entry.mode === 'DRONE_DEFENSE' ? 'Дроны' : 'Тир'})</span>
+                    <span className="font-semibold text-white truncate max-w-[160px]">{entry.playerName}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="font-display font-bold text-cyan-300">{entry.score.toLocaleString()} pts</span>

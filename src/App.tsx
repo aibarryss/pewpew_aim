@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Crosshair,
   Shield,
   HelpCircle,
   Sparkles,
@@ -16,7 +15,6 @@ import {
   GestureErrorFeedback,
   GestureCorrectionEvent,
   GameStats,
-  GameMode,
 } from './types/game';
 import { soundManager } from './utils/audio';
 
@@ -39,7 +37,6 @@ const INITIAL_STATS: GameStats = {
 
 export function App() {
   const [gameState, setGameState] = useState<'MENU' | 'PLAYING' | 'GAMEOVER'>('MENU');
-  const [gameMode, setGameMode] = useState<GameMode>('DRONE_DEFENSE');
   const [stats, setStats] = useState<GameStats>(INITIAL_STATS);
   const [timeLeft, setTimeLeft] = useState<number>(60);
   const [isMuted, setIsMuted] = useState<boolean>(false);
@@ -121,10 +118,9 @@ export function App() {
   );
 
   // Start game round
-  const startGame = (mode: GameMode = gameMode) => {
-    setGameMode(mode);
+  const startGame = () => {
     setStats({ ...INITIAL_STATS });
-    setTimeLeft(mode === 'DRONE_DEFENSE' ? 60 : 45);
+    setTimeLeft(60);
     setGameState('PLAYING');
     soundManager.playComboUp();
   };
@@ -163,7 +159,6 @@ export function App() {
       <GameCanvas
         handResult={handResult}
         gameActive={gameState === 'PLAYING'}
-        gameMode={gameMode}
         onStatsUpdate={setStats}
       />
 
@@ -173,11 +168,10 @@ export function App() {
           stats={stats}
           handResult={handResult}
           timeLeft={timeLeft}
-          gameMode={gameMode}
           isMuted={isMuted}
           onToggleMute={() => setIsMuted(soundManager.toggleMute())}
           onOpenTutorial={() => setShowTutorial(true)}
-          onRestart={() => startGame(gameMode)}
+          onRestart={() => startGame()}
         />
       )}
 
@@ -220,20 +214,13 @@ export function App() {
             </div>
           </div>
 
-          {/* Mode Selection & Start Buttons */}
-          <div className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-md">
+          {/* Start Game Button */}
+          <div className="w-full max-w-sm mx-auto">
             <button
-              onClick={() => startGame('DRONE_DEFENSE')}
-              className="w-full sm:flex-1 py-3.5 px-6 rounded-xl bg-gradient-to-r from-blue-600 to-red-700 hover:from-cyan-400 hover:to-blue-500 text-white font-display font-black text-sm uppercase tracking-wider transition-all shadow-xl shadow-gray-600/30 hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
+              onClick={() => startGame()}
+              className="w-full py-3.5 px-6 rounded-xl bg-gradient-to-r from-blue-600 to-red-700 hover:from-cyan-400 hover:to-blue-500 text-white font-display font-black text-sm uppercase tracking-wider transition-all shadow-xl shadow-gray-600/30 hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
             >
-              <Shield className="w-5 h-5" /> Оборона от дронов
-            </button>
-
-            <button
-              onClick={() => startGame('TARGET_RUSH')}
-              className="w-full sm:flex-1 py-3.5 px-6 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-cyan-500/40 text-cyan-200 font-display font-bold text-sm uppercase tracking-wider transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
-            >
-              <Crosshair className="w-5 h-5" /> Скоростной тир
+              <Shield className="w-5 h-5" /> В бой · Оборона от дронов
             </button>
           </div>
 
@@ -275,7 +262,7 @@ export function App() {
       <TutorialModal
         isOpen={showTutorial}
         onClose={() => setShowTutorial(false)}
-        onStartGame={() => startGame(gameMode)}
+        onStartGame={() => startGame()}
         handResult={handResult}
       />
 
@@ -283,8 +270,7 @@ export function App() {
       <GameOverModal
         isOpen={gameState === 'GAMEOVER'}
         stats={stats}
-        gameMode={gameMode}
-        onRestart={() => startGame(gameMode)}
+        onRestart={() => startGame()}
         onOpenTutorial={() => setShowTutorial(true)}
       />
     </div>

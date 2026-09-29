@@ -11,13 +11,12 @@ import {
   Heart,
   Clock,
 } from 'lucide-react';
-import { GameStats, HandDetectionResult, GameMode } from '../types/game';
+import { GameStats, HandDetectionResult } from '../types/game';
 
 interface HUDProps {
   stats: GameStats;
   handResult: HandDetectionResult;
   timeLeft: number;
-  gameMode: GameMode;
   isMuted: boolean;
   onToggleMute: () => void;
   onOpenTutorial: () => void;
@@ -28,7 +27,6 @@ export const HUD: React.FC<HUDProps> = ({
   stats,
   handResult,
   timeLeft,
-  gameMode,
   isMuted,
   onToggleMute,
   onOpenTutorial,
@@ -153,7 +151,7 @@ export const HUD: React.FC<HUDProps> = ({
             </div>
 
             <span className="text-[11px] font-cyber text-slate-400 uppercase tracking-wider hidden sm:inline">
-              {gameMode === 'DRONE_DEFENSE' ? 'Дроны-атакующие' : 'Скоростной тир'}
+              Дроны-атакующие
             </span>
           </div>
         </div>
