@@ -1,10 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Camera as CameraIcon, VideoOff, RefreshCw, FlipHorizontal, Eye, MousePointer } from 'lucide-react';
-import { HandDetectionResult, GestureErrorFeedback, Landmark } from '../types/game';
+import { HandDetectionResult, GestureErrorFeedback, GestureCorrectionEvent, Landmark } from '../types/game';
 import { GestureDetector } from '../utils/gestureDetector';
 
 interface WebcamViewProps {
-  onHandUpdate: (result: HandDetectionResult, errors: GestureErrorFeedback[]) => void;
+  onHandUpdate: (
+    result: HandDetectionResult,
+    errors: GestureErrorFeedback[],
+    correction: GestureCorrectionEvent | null
+  ) => void;
   showSkeleton?: boolean;
   isMirrored?: boolean;
   onToggleMirror?: () => void;
@@ -34,6 +38,8 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
   const streamRef = useRef<MediaStream | null>(null);
   const animLoopRef = useRef<number | null>(null);
   const isProcessingRef = useRef<boolean>(false);
+  const isMirroredRef = useRef<boolean>(isMirrored);
+  const onHandUpdateRef = useRef(onHandUpdate);
 
   const [cameraActive, setCameraActive] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
@@ -44,13 +50,21 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
   const fpsCountRef = useRef({ frames: 0, lastTime: performance.now() });
   const detectorRef = useRef<GestureDetector>(new GestureDetector());
   const handsInstanceRef = useRef<unknown>(null);
+  const mouseCleanupRef = useRef<(() => void) | null>(null);
 
-  // Load MediaPipe scripts dynamically if missing
+  useEffect(() => {
+    isMirroredRef.current = isMirrored;
+  }, [isMirrored]);
+
+  useEffect(() => {
+    onHandUpdateRef.current = onHandUpdate;
+  }, [onHandUpdate]);
+
+  // Load MediaPipe scripts dynamically if missing from index.html
   const ensureMediaPipeLoaded = async (): Promise<boolean> => {
     const checkReady = () => typeof (window as unknown as { Hands?: unknown }).Hands === 'function';
     if (checkReady()) return true;
 
-    // Inject script if not present
     if (!document.getElementById('mediapipe-hands-script')) {
       const script = document.createElement('script');
       script.id = 'mediapipe-hands-script';
@@ -68,19 +82,17 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
     return checkReady();
   };
 
-  // Start Camera Stream via standard getUserMedia
+  // Start Camera Stream via getUserMedia (Runs only on mount or retry)
   const startCamera = async () => {
     setLoading(true);
     setErrorMessage(null);
 
     try {
-      // 1. Ensure MediaPipe is loaded
       const mpReady = await ensureMediaPipeLoaded();
       if (!mpReady) {
-        throw new Error('Не удалось загрузить модель MediaPipe. Проверьте интернет.');
+        throw new Error('Не удалось загрузить модель MediaPipe. Проверьте соединение.');
       }
 
-      // 2. Request Camera stream with flexible constraints
       let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -92,7 +104,6 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
           audio: false,
         });
       } catch {
-        // Fallback to basic video constraint
         stream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: false,
@@ -106,7 +117,6 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
         await videoRef.current.play();
       }
 
-      // 3. Initialize Hands Instance
       const windowWithMP = window as unknown as {
         Hands: new (config: { locateFile: (file: string) => string }) => {
           setOptions: (opts: Record<string, unknown>) => void;
@@ -128,7 +138,6 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
       });
 
       hands.onResults((results) => {
-        // FPS calculation
         fpsCountRef.current.frames++;
         const now = performance.now();
         if (now - fpsCountRef.current.lastTime >= 1000) {
@@ -141,15 +150,14 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
           ? results.multiHandLandmarks[0]
           : null;
 
-        const { result, errors } = detectorRef.current.analyze(rawLandmarks, isMirrored);
-        onHandUpdate(result, errors);
+        const { result, errors, correction } = detectorRef.current.analyze(rawLandmarks, isMirroredRef.current);
+        onHandUpdateRef.current(result, errors, correction);
         drawOverlay(result.landmarks, result);
         isProcessingRef.current = false;
       });
 
       handsInstanceRef.current = hands;
 
-      // 4. Start requestAnimationFrame loop
       const processFrame = async () => {
         if (videoRef.current && videoRef.current.readyState >= 2 && handsInstanceRef.current) {
           if (!isProcessingRef.current) {
@@ -172,7 +180,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
     } catch (err: unknown) {
       console.error('Camera init error:', err);
       const msg = err instanceof Error ? err.message : 'Ошибка доступа к камере';
-      setErrorMessage(`Доступ к камере заблокирован или не поддерживается (${msg}). Разрешите камеру в настройках сайта.`);
+      setErrorMessage(`Камера не запущена (${msg}). Разрешите доступ или включите режим мыши.`);
       setLoading(false);
     }
   };
@@ -192,39 +200,91 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
           // ignore
         }
       }
+      if (mouseCleanupRef.current) {
+        mouseCleanupRef.current();
+      }
     };
-  }, [isMirrored]);
+  }, []);
 
-  // Mouse Simulation Fallback (Allows testing if camera is absent or denied)
+  // Mouse Simulation Fallback with strict event listener cleanup
   const enableMouseSimulation = () => {
+    if (mouseCleanupRef.current) {
+      mouseCleanupRef.current();
+    }
+
     setMouseSimMode(true);
     setErrorMessage(null);
     setLoading(false);
 
-    const handleMouseMove = (e: MouseEvent) => {
-      const x = e.clientX / window.innerWidth;
-      const y = e.clientY / window.innerHeight;
+    let isMouseDown = false;
+    let isShiftDown = false;
+    let isCtrlDown = false;
 
-      onHandUpdate(
+    const emitUpdate = (x: number, y: number) => {
+      onHandUpdateRef.current(
         {
           detected: true,
           landmarks: null,
           cursor: { x, y },
-          gesture: e.buttons === 1 ? 'PINCH_SHOOT' : 'AIMING',
-          pinchDistance: e.buttons === 1 ? 0.1 : 0.8,
-          isOpenPalm: e.shiftKey,
-          isFist: e.ctrlKey,
-          isAiming: true,
-          isPinch: e.buttons === 1,
-          isPeace: false,
+          gesture: isCtrlDown ? 'POWER_FIST' : isShiftDown ? 'SHIELD_PALM' : isMouseDown ? 'PINCH_SHOOT' : 'AIMING',
+          pinchDistance: isMouseDown ? 0.1 : 0.8,
+          isOpenPalm: isShiftDown,
+          isFist: isCtrlDown,
+          isAiming: !isShiftDown && !isCtrlDown,
+          isPinch: isMouseDown,
+          openFingersCount: isShiftDown ? 5 : isCtrlDown ? 0 : 1,
           indexFingerStraightness: 1.0,
           confidence: 1.0,
         },
-        []
+        [],
+        null
       );
     };
 
+    let lastX = 0.5;
+    let lastY = 0.5;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      lastX = e.clientX / window.innerWidth;
+      lastY = e.clientY / window.innerHeight;
+      emitUpdate(lastX, lastY);
+    };
+
+    const handleMouseDown = () => {
+      isMouseDown = true;
+      emitUpdate(lastX, lastY);
+    };
+
+    const handleMouseUp = () => {
+      isMouseDown = false;
+      emitUpdate(lastX, lastY);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') isShiftDown = true;
+      if (e.key === 'Control' || e.key === 'Alt') isCtrlDown = true;
+      emitUpdate(lastX, lastY);
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') isShiftDown = false;
+      if (e.key === 'Control' || e.key === 'Alt') isCtrlDown = false;
+      emitUpdate(lastX, lastY);
+    };
+
     window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    mouseCleanupRef.current = () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
   };
 
   const drawOverlay = (landmarks: Landmark[] | null, result: HandDetectionResult) => {
@@ -308,7 +368,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/85 text-cyan-400 p-3 text-center z-20">
           <RefreshCw className="w-7 h-7 animate-spin mb-2 text-cyan-400" />
           <p className="font-cyber text-xs font-semibold tracking-wider uppercase">Запуск камеры и нейросети...</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">Разрешите доступ к камере во всплывающем окне</p>
+          <p className="text-[10px] text-slate-400 mt-0.5">Разрешите доступ к камере в браузере</p>
         </div>
       )}
 
@@ -337,7 +397,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
       <div className="absolute top-2 left-2 right-2 flex items-center justify-between text-[11px] font-cyber text-cyan-300 pointer-events-auto z-10">
         <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-950/70 border border-cyan-500/20 backdrop-blur-sm">
           <span className={`w-2 h-2 rounded-full ${cameraActive || mouseSimMode ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
-          <span>{mouseSimMode ? 'MOUSE MODE' : `${fps} FPS`}</span>
+          <span>{mouseSimMode ? 'MOUSE' : `${fps} FPS`}</span>
         </div>
 
         <div className="flex items-center gap-1">

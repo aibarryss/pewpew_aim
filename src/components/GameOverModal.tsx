@@ -36,11 +36,10 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
       if (raw) {
         setLeaderboard(JSON.parse(raw));
       } else {
-        // Initial mock leaderboard for competition feel
         const defaults: LeaderboardEntry[] = [
-          { id: '1', playerName: 'CyberSniper', score: 8400, mode: 'DRONE_DEFENSE', accuracy: 88, maxCombo: 14, date: '28.09' },
-          { id: '2', playerName: 'AimGod_KZ', score: 6200, mode: 'TARGET_RUSH', accuracy: 82, maxCombo: 9, date: '28.09' },
-          { id: '3', playerName: 'NeonHunter', score: 4950, mode: 'DRONE_DEFENSE', accuracy: 75, maxCombo: 7, date: '28.09' },
+          { id: '1', playerName: 'CyberSniper', score: 8400, mode: 'DRONE_DEFENSE', accuracy: 88, maxCombo: 14, errorsCorrected: 6, date: '28.09' },
+          { id: '2', playerName: 'AimGod_KZ', score: 6200, mode: 'TARGET_RUSH', accuracy: 82, maxCombo: 9, errorsCorrected: 4, date: '28.09' },
+          { id: '3', playerName: 'NeonHunter', score: 4950, mode: 'DRONE_DEFENSE', accuracy: 75, maxCombo: 7, errorsCorrected: 3, date: '28.09' },
         ];
         setLeaderboard(defaults);
         localStorage.setItem(LEADERBOARD_STORAGE_KEY, JSON.stringify(defaults));
@@ -83,6 +82,8 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
     rankColor = 'text-cyan-400 border-cyan-400 glow-cyan';
   }
 
+  const accuracyDisplay = stats.shotsFired === 0 ? '—' : `${stats.accuracy}%`;
+
   const handleSaveScore = (e: React.FormEvent) => {
     e.preventDefault();
     if (!playerName.trim() || saved) return;
@@ -94,6 +95,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
       mode: gameMode,
       accuracy: stats.accuracy,
       maxCombo: stats.maxCombo,
+      errorsCorrected: stats.errorsCorrected,
       date: new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
     };
 
@@ -148,7 +150,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
             <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800">
               <span className="text-[11px] font-cyber text-slate-400 uppercase block">Меткость</span>
-              <span className="font-display text-xl font-bold text-cyan-400">{stats.accuracy}%</span>
+              <span className="font-display text-xl font-bold text-cyan-400">{accuracyDisplay}</span>
             </div>
 
             <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800">
@@ -167,16 +169,16 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
             </div>
           </div>
 
-          {/* Error Mode Biometrics Report for Hackathon Twist */}
+          {/* Error Mode Biometrics Report (Accurate transition stats) */}
           <div className="p-3.5 rounded-xl bg-cyan-950/30 border border-cyan-500/30 flex items-center justify-between text-xs">
             <div className="flex items-center gap-2 text-cyan-300">
               <Activity className="w-4 h-4 text-cyan-400" />
               <span>
-                <strong>Отчёт режима «Ошибка»:</strong> распознано и скорректировано отклонений позы
+                <strong>Отчёт режима «Ошибка»:</strong> исправлено нарушений биомеханики позы
               </span>
             </div>
             <span className="font-mono font-bold text-emerald-400 text-sm">
-              +{stats.errorsCorrected || stats.targetsDestroyed} исправлений
+              +{stats.errorsCorrected} из {Math.max(stats.errorsDetected, stats.errorsCorrected)} исправлено
             </span>
           </div>
 
@@ -200,49 +202,62 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
               </button>
             </form>
           ) : (
-            <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-xs text-emerald-300 flex items-center justify-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4" /> Результат добавлен в таблицу лидеров!
+            <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs flex items-center justify-center gap-2 font-cyber font-semibold">
+              <CheckCircle2 className="w-4 h-4" /> Результат успешно сохранён в локальный зал славы!
             </div>
           )}
 
-          {/* Top Leaderboard */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-[11px] font-cyber text-slate-400 uppercase tracking-wider px-2">
-              <span className="flex items-center gap-1">
-                <Trophy className="w-3.5 h-3.5 text-amber-400" /> Таблица рекордов
+          {/* Local Leaderboard Section */}
+          <div className="rounded-xl bg-slate-950/80 border border-slate-800 p-3">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-xs font-cyber text-slate-400">
+              <span className="flex items-center gap-1.5 font-bold text-cyan-400">
+                <Trophy className="w-3.5 h-3.5 text-yellow-400" /> Локальный зал славы (Device Records)
               </span>
-              <span>Очки</span>
+              <span>Топ 10</span>
             </div>
 
-            <div className="divide-y divide-slate-800/80 rounded-xl bg-slate-950/80 border border-slate-800 overflow-hidden">
-              {leaderboard.slice(0, 4).map((entry, idx) => (
-                <div key={entry.id} className="flex items-center justify-between px-3 py-2 text-xs">
+            <div className="mt-2 space-y-1.5 max-h-36 overflow-y-auto">
+              {leaderboard.map((entry, idx) => (
+                <div
+                  key={entry.id}
+                  className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-cyber ${
+                    idx === 0
+                      ? 'bg-amber-500/15 border border-amber-500/30 text-amber-300'
+                      : idx === 1
+                      ? 'bg-slate-800/60 text-slate-200'
+                      : idx === 2
+                      ? 'bg-amber-900/20 text-amber-200'
+                      : 'bg-slate-900/40 text-slate-400'
+                  }`}
+                >
                   <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-slate-500 w-4">{idx + 1}.</span>
-                    <span className="font-semibold text-slate-200">{entry.playerName}</span>
-                    <span className="text-[10px] text-slate-500 font-cyber">({entry.accuracy}%)</span>
+                    <span className="font-mono font-bold w-4 text-center">#{idx + 1}</span>
+                    <span className="font-semibold text-white truncate max-w-[120px]">{entry.playerName}</span>
+                    <span className="text-[10px] text-slate-500 hidden sm:inline">({entry.mode === 'DRONE_DEFENSE' ? 'Дроны' : 'Тир'})</span>
                   </div>
-                  <span className="font-mono font-bold text-cyan-400">{entry.score.toLocaleString()}</span>
+                  <div className="flex items-center gap-3">
+                    <span className="font-display font-bold text-cyan-300">{entry.score.toLocaleString()} pts</span>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
         </div>
 
-        {/* Footer Actions */}
-        <div className="flex items-center justify-between border-t border-slate-800 pt-4 mt-2 gap-3">
+        {/* Modal Footer Actions */}
+        <div className="pt-4 border-t border-slate-800 flex gap-3">
           <button
             onClick={onOpenTutorial}
-            className="px-4 py-2.5 rounded-xl border border-slate-700 hover:border-slate-500 text-slate-300 text-xs font-cyber font-semibold uppercase tracking-wider transition-colors"
+            className="flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-cyber font-bold text-xs uppercase tracking-wider transition-colors"
           >
-            Инструкция жестов
+            Калибровка жестов
           </button>
 
           <button
             onClick={onRestart}
-            className="flex-1 px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-display font-extrabold text-xs md:text-sm tracking-wider uppercase transition-all shadow-lg shadow-cyan-500/30 flex items-center justify-center gap-2 hover:scale-102 active:scale-98"
+            className="flex-1 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-display font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-cyan-500/25 flex items-center justify-center gap-2"
           >
-            <RotateCcw className="w-4 h-4" /> Играть Снова
+            <RotateCcw className="w-4 h-4" /> Играть снова
           </button>
         </div>
       </div>

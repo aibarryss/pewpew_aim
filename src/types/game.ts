@@ -4,20 +4,20 @@ export interface Landmark {
   z: number;
 }
 
-export type GestureType = 'IDLE' | 'AIMING' | 'PINCH_SHOOT' | 'SHIELD_PALM' | 'POWER_FIST' | 'PEACE_SIGN';
+export type GestureType = 'IDLE' | 'AIMING' | 'PINCH_SHOOT' | 'SHIELD_PALM' | 'POWER_FIST';
 
 export interface HandDetectionResult {
   detected: boolean;
   landmarks: Landmark[] | null;
-  cursor: { x: number; y: number } | null; // Screen coordinates 0..1
+  cursor: { x: number; y: number } | null;
   gesture: GestureType;
   pinchDistance: number;
   isOpenPalm: boolean;
   isFist: boolean;
   isAiming: boolean;
   isPinch: boolean;
-  isPeace: boolean;
-  indexFingerStraightness: number; // 0..1
+  openFingersCount: number;
+  indexFingerStraightness: number;
   confidence: number;
 }
 
@@ -30,24 +30,32 @@ export interface GestureErrorFeedback {
   timestamp: number;
 }
 
+export interface GestureCorrectionEvent {
+  id: string;
+  type: GestureErrorFeedback['type'];
+  resolvedMessage: string;
+  scoreBonus: number;
+  timestamp: number;
+}
+
 export type TargetType = 'STANDARD' | 'FAST' | 'SHOOTER' | 'GOLDEN' | 'BOMB';
 
 export interface Target {
   id: string;
   type: TargetType;
-  x: number; // 0..1
-  y: number; // 0..1
-  radius: number; // relative fraction
+  x: number;
+  y: number;
+  radius: number;
   vx: number;
   vy: number;
   maxHealth: number;
   health: number;
   points: number;
   createdAt: number;
-  duration: number; // lifespan in ms
+  duration: number;
   scale: number;
   pulsePhase: number;
-  shootCooldown?: number; // For shooter drones
+  shootCooldown?: number;
 }
 
 export interface EnemyProjectile {
@@ -85,7 +93,7 @@ export interface FloatingText {
   scale: number;
 }
 
-export type GameMode = 'TARGET_RUSH' | 'DRONE_DEFENSE' | 'SURVIVAL';
+export type GameMode = 'TARGET_RUSH' | 'DRONE_DEFENSE';
 
 export interface GameStats {
   score: number;
@@ -111,5 +119,6 @@ export interface LeaderboardEntry {
   mode: GameMode;
   accuracy: number;
   maxCombo: number;
+  errorsCorrected: number;
   date: string;
 }

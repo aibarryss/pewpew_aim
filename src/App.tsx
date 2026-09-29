@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Crosshair,
   Shield,
@@ -14,6 +14,7 @@ import { ErrorFeedbackToast } from './components/ErrorFeedbackToast';
 import {
   HandDetectionResult,
   GestureErrorFeedback,
+  GestureCorrectionEvent,
   GameStats,
   GameMode,
 } from './types/game';
@@ -57,26 +58,60 @@ export function App() {
     isFist: false,
     isAiming: false,
     isPinch: false,
-    isPeace: false,
+    openFingersCount: 0,
     indexFingerStraightness: 0,
     confidence: 0,
   });
 
   const [currentErrors, setCurrentErrors] = useState<GestureErrorFeedback[]>([]);
+  const [lastCorrection, setLastCorrection] = useState<GestureCorrectionEvent | null>(null);
   const [totalErrorsCount, setTotalErrorsCount] = useState<number>(0);
   const [totalCorrectedCount, setTotalCorrectedCount] = useState<number>(0);
 
-  // Hand update callback
+  const prevActiveErrorTypeRef = useRef<string | null>(null);
+
+  // State-Machine Error & Correction Callback
   const handleHandUpdate = useCallback(
-    (result: HandDetectionResult, errors: GestureErrorFeedback[]) => {
+    (
+      result: HandDetectionResult,
+      errors: GestureErrorFeedback[],
+      correction: GestureCorrectionEvent | null
+    ) => {
       setHandResult(result);
       setCurrentErrors(errors);
 
+      // 1. Error detection transition
       if (errors.length > 0) {
-        setTotalErrorsCount((prev) => prev + errors.length);
-        soundManager.playErrorWarning();
-      } else if (result.detected && result.isAiming) {
+        const activeType = errors[0].type;
+        if (prevActiveErrorTypeRef.current !== activeType) {
+          prevActiveErrorTypeRef.current = activeType;
+          setTotalErrorsCount((prev) => prev + 1);
+          setStats((prev) => ({
+            ...prev,
+            errorsDetected: prev.errorsDetected + 1,
+          }));
+          soundManager.playErrorWarning();
+        }
+      } else {
+        prevActiveErrorTypeRef.current = null;
+      }
+
+      // 2. Correction resolution transition
+      if (correction) {
+        prevActiveErrorTypeRef.current = null;
+        setLastCorrection(correction);
         setTotalCorrectedCount((prev) => prev + 1);
+        soundManager.playComboUp();
+
+        setStats((prev) => ({
+          ...prev,
+          score: prev.score + correction.scoreBonus,
+          errorsCorrected: prev.errorsCorrected + 1,
+        }));
+
+        setTimeout(() => {
+          setLastCorrection((current) => (current?.id === correction.id ? null : current));
+        }, 2500);
       }
     },
     []
@@ -155,28 +190,30 @@ export function App() {
           <h1 className="font-display text-4xl sm:text-6xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-teal-200 to-pink-500 tracking-wider">
             PEWPEW AIM FX
           </h1>
-          <p className="font-cyber text-sm sm:text-lg text-slate-300 max-w-xl mt-2 leading-relaxed" 
-          style={{ textShadow: '0 0 8px rgba(0, 255, 255, 0.5)' }}>
+          <p
+            className="font-cyber text-sm sm:text-lg text-slate-300 max-w-xl mt-2 leading-relaxed"
+            style={{ textShadow: '0 0 8px rgba(0, 255, 255, 0.5)' }}
+          >
             Бесконтактный шутер с компьютерным зрением. Управляй прицелом кончиком пальца, стреляй щипком, выставляй силовой щит ладонью.
           </p>
 
           {/* Key Gesture Badges */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 my-6 w-full max-w-2xl text-xs font-cyber">
             <div className="p-2.5 rounded-xl bg-slate-900/80 border border-cyan-500/30 text-cyan-300">
-              <span className="block font-bold text-sm">Point</span>
-              <span className="text-slate-400 text-[11px]">Прицел кончиком пальца</span>
+              <span className="block font-bold text-sm">🎯 Point</span>
+              <span className="text-slate-400 text-[11px]">Прицел указательным пальцем</span>
             </div>
             <div className="p-2.5 rounded-xl bg-slate-900/80 border border-pink-500/30 text-pink-300">
-              <span className="block font-bold text-sm">Pinch</span>
-              <span className="text-slate-400 text-[11px]">Лазерный выстрел</span>
+              <span className="block font-bold text-sm">💥 Pinch</span>
+              <span className="text-slate-400 text-[11px]">Лазерный выстрел (щипок)</span>
             </div>
             <div className="p-2.5 rounded-xl bg-slate-900/80 border border-emerald-500/30 text-emerald-300">
-              <span className="block font-bold text-sm">Palm</span>
-              <span className="text-slate-400 text-[11px]">Силовой щит от пуль</span>
+              <span className="block font-bold text-sm">🛡️ Palm</span>
+              <span className="text-slate-400 text-[11px]">Силовой щит (5 пальцев)</span>
             </div>
             <div className="p-2.5 rounded-xl bg-slate-900/80 border border-amber-500/30 text-amber-300">
-              <span className="block font-bold text-sm">Fist</span>
-              <span className="text-slate-400 text-[11px]">EMP очистка экрана</span>
+              <span className="block font-bold text-sm">⚡ Fist</span>
+              <span className="text-slate-400 text-[11px]">EMP взрыв (кулак)</span>
             </div>
           </div>
 
@@ -184,8 +221,7 @@ export function App() {
           <div className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-md">
             <button
               onClick={() => startGame('DRONE_DEFENSE')}
-              className="w-full sm:flex-1 py-3.5 px-6 rounded-xl bg-gradient-to-r from-blue-600 to-red-700 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-display font-black text-sm uppercase tracking-wider transition-all shadow-xl shadow-gray-600/30
-               hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
+              className="w-full sm:flex-1 py-3.5 px-6 rounded-xl bg-gradient-to-r from-blue-600 to-red-700 hover:from-cyan-400 hover:to-blue-500 text-white font-display font-black text-sm uppercase tracking-wider transition-all shadow-xl shadow-gray-600/30 hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
             >
               <Shield className="w-5 h-5" /> Оборона от дронов
             </button>
@@ -222,10 +258,11 @@ export function App() {
         />
       </div>
 
-      {/* Bottom Left Real-time Error Feedback Assist (Hackathon Twist) */}
+      {/* Bottom Left Real-time Error Feedback Assist */}
       <div className="absolute bottom-4 left-4 z-40">
         <ErrorFeedbackToast
           currentErrors={currentErrors}
+          lastCorrection={lastCorrection}
           totalErrorsCount={totalErrorsCount}
           totalCorrectedCount={totalCorrectedCount}
         />

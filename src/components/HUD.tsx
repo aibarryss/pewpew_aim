@@ -52,7 +52,7 @@ export const HUD: React.FC<HUDProps> = ({
         };
       case 'SHIELD_PALM':
         return {
-          label: '🛡️ СИЛОВОЙ ЩИТ',
+          label: '🛡️ СИЛОВОЙ ЩИТ (5 ПАЛЬЦЕВ)',
           color: 'border-emerald-500 bg-emerald-950/80 text-emerald-300 glow-emerald',
           icon: Shield,
         };
@@ -61,12 +61,6 @@ export const HUD: React.FC<HUDProps> = ({
           label: '⚡ EMP ЗАРЯД (КУЛАК)',
           color: 'border-amber-500 bg-amber-950/80 text-amber-300 glow-amber',
           icon: Zap,
-        };
-      case 'PEACE_SIGN':
-        return {
-          label: '✌️ МНОЖИТЕЛЬ ОЧКОВ',
-          color: 'border-purple-500 bg-purple-950/80 text-purple-300',
-          icon: Flame,
         };
       case 'AIMING':
         return {
@@ -85,6 +79,8 @@ export const HUD: React.FC<HUDProps> = ({
 
   const badge = getGestureBadge();
   const IconComponent = badge.icon;
+
+  const accuracyDisplay = stats.shotsFired === 0 ? '—' : `${stats.accuracy}%`;
 
   return (
     <header className="absolute top-0 left-0 right-0 p-4 md:p-6 pointer-events-none z-20">
@@ -115,7 +111,7 @@ export const HUD: React.FC<HUDProps> = ({
           {/* Quick Stat Pills */}
           <div className="flex items-center gap-2 text-xs font-cyber">
             <span className="px-2.5 py-1 rounded-md bg-slate-900/80 border border-slate-800 text-slate-300">
-              Меткость: <strong className="text-cyan-400 font-mono">{stats.accuracy}%</strong>
+              Меткость: <strong className="text-cyan-400 font-mono">{accuracyDisplay}</strong>
             </span>
             <span className="px-2.5 py-1 rounded-md bg-slate-900/80 border border-slate-800 text-slate-300">
               Целей сбито: <strong className="text-emerald-400 font-mono">{stats.targetsDestroyed}</strong>
