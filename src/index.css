@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import url('https://googleapis.com');
 
 @layer base {
   body {
@@ -13,7 +14,10 @@
   }
 
   .font-cyber {
-    font-family: 'Rajdhani', sans-serif;
+    font-family: "Comfortaa", sans-serif;
+    letter-spacing: 0.005em;
+  font-weight: 400;
+  font-style: normal;
   }
 }
 
@@ -48,7 +52,6 @@
 
 /* Scanline and grid overlays */
 .cyber-grid {
-  background-size: 40px 40px;
   background-image: 
     linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
@@ -77,6 +80,4 @@
   }
 }
 
-.animate-pulse-ring {
-  animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
+
