@@ -74,8 +74,11 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [fps, setFps] = useState<number>(0);
   const [mouseSimMode, setMouseSimMode] = useState<boolean>(false);
+  const [trackingStalled, setTrackingStalled] = useState<boolean>(false);
 
   const fpsCountRef = useRef({ frames: 0, lastTime: performance.now() });
+  const hasReceivedFramesRef = useRef<boolean>(false);
+  const watchdogTimeoutRef = useRef<number | null>(null);
   const detectorRef = useRef<GestureDetector>(new GestureDetector());
   const handsInstanceRef = useRef<unknown>(null);
   const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
@@ -153,6 +156,11 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
   const startCamera = async () => {
     setLoading(true);
     setErrorMessage(null);
+    setTrackingStalled(false);
+    hasReceivedFramesRef.current = false;
+    if (watchdogTimeoutRef.current) {
+      clearTimeout(watchdogTimeoutRef.current);
+    }
 
     try {
       const mpReady = await ensureMediaPipeLoaded();
@@ -199,14 +207,19 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
         locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`,
       });
 
+      const isMobileDevice =
+        window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 768;
+
       hands.setOptions({
         maxNumHands: 1,
-        modelComplexity: 1,
+        modelComplexity: isMobileDevice ? 0 : 1,
         minDetectionConfidence: 0.6,
         minTrackingConfidence: 0.6,
       });
 
       hands.onResults((results) => {
+        hasReceivedFramesRef.current = true;
+        setTrackingStalled(false);
         fpsCountRef.current.frames++;
         const now = performance.now();
         if (now - fpsCountRef.current.lastTime >= 1000) {
@@ -266,7 +279,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
           }
           faceLandmarkerRef.current = landmarker;
         } catch (err) {
-          console.warn('FaceLandmarker optional loading failed, running with Hands only:', err);
+          console.error('FaceLandmarker optional loading failed, running with Hands only:', err);
         }
       })();
 
@@ -326,6 +339,15 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
       animLoopRef.current = requestAnimationFrame(processFrame);
       setCameraActive(true);
       setLoading(false);
+
+      if (watchdogTimeoutRef.current) {
+        clearTimeout(watchdogTimeoutRef.current);
+      }
+      watchdogTimeoutRef.current = window.setTimeout(() => {
+        if (!hasReceivedFramesRef.current && fpsCountRef.current.frames === 0) {
+          setTrackingStalled(true);
+        }
+      }, 6000);
     } catch (err: unknown) {
       console.error('Camera init error:', err);
       const msg = err instanceof Error ? err.message : 'Ошибка доступа к камере';
@@ -338,6 +360,7 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
     startCamera();
 
     return () => {
+      if (watchdogTimeoutRef.current) clearTimeout(watchdogTimeoutRef.current);
       if (animLoopRef.current) cancelAnimationFrame(animLoopRef.current);
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
@@ -364,6 +387,8 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
 
   // Mouse Simulation Fallback with strict event listener cleanup
   const enableMouseSimulation = () => {
+    if (watchdogTimeoutRef.current) clearTimeout(watchdogTimeoutRef.current);
+    setTrackingStalled(false);
     if (mouseCleanupRef.current) {
       mouseCleanupRef.current();
     }
@@ -629,6 +654,22 @@ export const WebcamView: React.FC<WebcamViewProps> = ({
               className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-[10px] font-cyber uppercase tracking-wider flex items-center gap-1"
             >
               <MousePointer className="w-3 h-3" /> Режим Мыши
+            </button>
+          </div>
+        </div>
+      )}
+
+      {trackingStalled && !loading && !errorMessage && (
+        <div className="absolute top-10 left-2 right-2 p-2.5 rounded-lg bg-slate-950/90 border border-amber-500/50 text-amber-200 text-xs backdrop-blur-md shadow-xl z-20 flex flex-col gap-2">
+          <p className="text-[11px] leading-snug text-slate-300">
+            Распознавание руки не запустилось. Попробуй открыть сайт в Chrome/Safari напрямую (не через встроенный браузер мессенджера) или обнови страницу.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={startCamera}
+              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-white font-cyber font-bold rounded text-[10px] uppercase tracking-wider flex items-center gap-1 transition-colors"
+            >
+              <RefreshCw className="w-3 h-3" /> Обновить
             </button>
           </div>
         </div>

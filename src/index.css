@@ -2,6 +2,7 @@
 
 @layer base {
   body {
+    color-scheme: dark;
     font-family: 'Sora', system-ui, -apple-system, sans-serif;
     user-select: none;
     -webkit-user-select: none;
