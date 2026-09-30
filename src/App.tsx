@@ -15,6 +15,7 @@ import {
   GestureErrorFeedback,
   GestureCorrectionEvent,
   GameStats,
+  ErrorLogEntry,
 } from './types/game';
 import { soundManager } from './utils/audio';
 
@@ -67,6 +68,7 @@ export function App() {
   const [lastCorrection, setLastCorrection] = useState<GestureCorrectionEvent | null>(null);
   const [totalErrorsCount, setTotalErrorsCount] = useState<number>(0);
   const [totalCorrectedCount, setTotalCorrectedCount] = useState<number>(0);
+  const [errorLog, setErrorLog] = useState<ErrorLogEntry[]>([]);
 
   const prevActiveErrorTypeRef = useRef<string | null>(null);
 
@@ -86,6 +88,16 @@ export function App() {
         if (prevActiveErrorTypeRef.current !== activeType) {
           prevActiveErrorTypeRef.current = activeType;
           setTotalErrorsCount((prev) => prev + 1);
+          setErrorLog((prev) => [
+            ...prev,
+            {
+              id: errors[0].id + '_' + Date.now(),
+              type: errors[0].type,
+              message: errors[0].message,
+              detectedAt: Date.now(),
+              resolved: false,
+            },
+          ]);
           setStats((prev) => ({
             ...prev,
             errorsDetected: prev.errorsDetected + 1,
@@ -101,6 +113,19 @@ export function App() {
         prevActiveErrorTypeRef.current = null;
         setLastCorrection(correction);
         setTotalCorrectedCount((prev) => prev + 1);
+        setErrorLog((prev) => {
+          const idx = prev.findIndex((e) => e.type === correction.type && !e.resolved);
+          if (idx === -1) return prev;
+          const updated = [...prev];
+          updated[idx] = {
+            ...updated[idx],
+            resolved: true,
+            resolvedMessage: correction.resolvedMessage,
+            scoreBonus: correction.scoreBonus,
+            resolvedAt: Date.now(),
+          };
+          return updated;
+        });
         soundManager.playComboUp();
 
         setStats((prev) => ({
@@ -121,6 +146,7 @@ export function App() {
   const startGame = () => {
     setStats({ ...INITIAL_STATS });
     setTimeLeft(60);
+    setErrorLog([]);
     setGameState('PLAYING');
     soundManager.playComboUp();
   };
@@ -273,6 +299,7 @@ export function App() {
       <GameOverModal
         isOpen={gameState === 'GAMEOVER'}
         stats={stats}
+        errorLog={errorLog}
         onRestart={() => startGame()}
         onOpenTutorial={() => setShowTutorial(true)}
         onExitToMenu={exitToMenu}

@@ -6,12 +6,14 @@ import {
   Activity,
   CheckCircle2,
   Home,
+  AlertTriangle,
 } from 'lucide-react';
-import { GameStats, LeaderboardEntry } from '../types/game';
+import { GameStats, LeaderboardEntry, ErrorLogEntry } from '../types/game';
 
 interface GameOverModalProps {
   isOpen: boolean;
   stats: GameStats;
+  errorLog: ErrorLogEntry[];
   onRestart: () => void;
   onOpenTutorial: () => void;
   onExitToMenu: () => void;
@@ -22,6 +24,7 @@ const LEADERBOARD_STORAGE_KEY = 'pewpew_aim_leaderboard_v1';
 export const GameOverModal: React.FC<GameOverModalProps> = ({
   isOpen,
   stats,
+  errorLog,
   onRestart,
   onOpenTutorial,
   onExitToMenu,
@@ -89,6 +92,9 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   }
 
   const accuracyDisplay = stats.shotsFired === 0 ? '—' : `${stats.accuracy}%`;
+
+  const resolvedEntries = errorLog.filter((e) => e.resolved);
+  const unresolvedEntries = errorLog.filter((e) => !e.resolved);
 
   const handleSaveScore = (e: React.FormEvent) => {
     e.preventDefault();
@@ -185,6 +191,79 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
             <span className="font-mono font-bold text-emerald-400 text-sm">
               +{stats.errorsCorrected} из {Math.max(stats.errorsDetected, stats.errorsCorrected)} исправлено
             </span>
+          </div>
+
+          {/* Detailed Twist Log Report */}
+          <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 text-xs font-cyber space-y-2.5">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
+              <span className="font-bold text-slate-200 uppercase tracking-wider text-[11px]">
+                Твист-отчёт
+              </span>
+              <div className="flex items-center gap-3 text-slate-400 text-[11px]">
+                <span>
+                  Обнаружено случаев: <strong className="text-slate-200 font-mono font-bold">{errorLog.length}</strong>
+                </span>
+                <span>
+                  Исправлено: <strong className="text-emerald-400 font-mono font-bold">{resolvedEntries.length}</strong>
+                </span>
+              </div>
+            </div>
+
+            {errorLog.length === 0 ? (
+              <p className="text-slate-400 py-1 text-center text-xs">
+                Ошибок не обнаружено — чистая техника!
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {resolvedEntries.length > 0 && (
+                  <div className="space-y-1">
+                    {resolvedEntries.slice(0, 5).map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="flex items-center justify-between text-[11px] gap-2 py-0.5"
+                      >
+                        <span className="flex items-center gap-1.5 text-emerald-400 truncate">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span className="truncate">{entry.message}</span>
+                        </span>
+                        <span className="shrink-0 font-mono font-bold text-emerald-400 text-[11px]">
+                          +{entry.scoreBonus ?? 200} PTS
+                        </span>
+                      </div>
+                    ))}
+                    {resolvedEntries.length > 5 && (
+                      <span className="text-[10px] text-slate-500 block pl-5">
+                        +{resolvedEntries.length - 5} ещё
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {unresolvedEntries.length > 0 && (
+                  <div className="space-y-1">
+                    {unresolvedEntries.slice(0, 5).map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="flex items-center justify-between text-[11px] gap-2 py-0.5"
+                      >
+                        <span className="flex items-center gap-1.5 text-amber-400 truncate">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span className="truncate">{entry.message}</span>
+                        </span>
+                        <span className="shrink-0 text-[10px] text-slate-400 italic">
+                          Раунд завершился до того, как ошибка была исправлена
+                        </span>
+                      </div>
+                    ))}
+                    {unresolvedEntries.length > 5 && (
+                      <span className="text-[10px] text-slate-500 block pl-5">
+                        +{unresolvedEntries.length - 5} ещё
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Save Record Input */}

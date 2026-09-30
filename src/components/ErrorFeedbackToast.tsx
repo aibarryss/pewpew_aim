@@ -99,7 +99,7 @@ export const ErrorFeedbackToast: React.FC<ErrorFeedbackToastProps> = ({
           AI Gesture Monitor Active
         </span>
         <span className="text-slate-400">
-          Ошибок исправлено: <strong className="text-emerald-400 font-mono font-bold">{totalCorrectedCount}</strong> / {totalErrorsCount}
+          Исправлено случаев: <strong className="text-emerald-400 font-mono font-bold">{totalCorrectedCount}</strong> / {totalErrorsCount}
         </span>
       </div>
     </div>

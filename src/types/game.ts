@@ -41,6 +41,18 @@ export interface GestureCorrectionEvent {
   timestamp: number;
 }
 
+export interface ErrorLogEntry {
+  id: string;
+  type: GestureErrorFeedback['type'];
+  message: string;
+  detectedAt: number;
+  resolved: boolean;
+  resolvedMessage?: string;
+  scoreBonus?: number;
+  resolvedAt?: number;
+}
+
+
 export type TargetType = 'STANDARD' | 'FAST' | 'SHOOTER' | 'GOLDEN' | 'BOMB';
 
 export interface Target {
