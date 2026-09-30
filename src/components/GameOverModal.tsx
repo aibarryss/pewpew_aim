@@ -72,13 +72,18 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   // Calculate Rank
   let rank = 'C';
   let rankColor = 'text-slate-400 border-slate-500';
-  if (stats.score >= 6000 || (stats.score >= 4000 && stats.accuracy >= 80)) {
+  if (
+    stats.score >= 18000 &&
+    stats.accuracy >= 85 &&
+    stats.maxCombo >= 20 &&
+    stats.bombHits === 0
+  ) {
     rank = 'S';
     rankColor = 'text-yellow-400 border-yellow-400 glow-amber';
-  } else if (stats.score >= 3500) {
+  } else if (stats.score >= 8000 && stats.accuracy >= 60) {
     rank = 'A';
     rankColor = 'text-pink-400 border-pink-400 glow-magenta';
-  } else if (stats.score >= 1800) {
+  } else if (stats.score >= 2500) {
     rank = 'B';
     rankColor = 'text-cyan-400 border-cyan-400 glow-cyan';
   }

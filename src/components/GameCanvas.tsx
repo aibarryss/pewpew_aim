@@ -49,7 +49,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const powerFistChargeRef = useRef<number>(0);
   const screenShakeRef = useRef<number>(0);
   const lastSpawnTimeRef = useRef<number>(0);
-  const lastEmpTimeRef = useRef<number>(-10000);
+  const lastEmpTimeRef = useRef<number>(-16000);
   const lastEmpWarningTimeRef = useRef<number>(0);
   const roundStartTimeRef = useRef<number>(0);
   const hasSpawnedFirstShooterRef = useRef<boolean>(false);
@@ -67,7 +67,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     lastShotTimeRef.current = 0;
     lastSpawnTimeRef.current = 0;
     screenShakeRef.current = 0;
-    lastEmpTimeRef.current = -10000;
+    lastEmpTimeRef.current = -16000;
     lastEmpWarningTimeRef.current = 0;
     hasSpawnedFirstShooterRef.current = false;
 
@@ -328,7 +328,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     screenShakeRef.current = 15;
 
     const destroyed = targetsRef.current.filter((t) => t.type !== 'BOMB' && t.health > 0);
-    const gained = destroyed.reduce((acc, t) => acc + t.points, 0);
+    const gained = Math.round(destroyed.reduce((acc, t) => acc + t.points, 0) * 0.5);
 
     destroyed.forEach((t) => {
       createExplosion(t.x, t.y, '#38bdf8', 30);
@@ -401,10 +401,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
         wasTriggerShootRef.current = !!curHand.triggerShoot;
 
-        // Power Fist Charging Check with 10s cooldown
+        // Power Fist Charging Check with 16s cooldown
         if (curHand.detected && curHand.cursor) {
           if (curHand.gesture === 'POWER_FIST') {
-            if (time - lastEmpTimeRef.current < 10000) {
+            if (time - lastEmpTimeRef.current < 16000) {
               powerFistChargeRef.current = 0;
               if (time - lastEmpWarningTimeRef.current >= 1000) {
                 lastEmpWarningTimeRef.current = time;
