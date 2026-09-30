@@ -54,22 +54,25 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const roundStartTimeRef = useRef<number>(0);
   const hasSpawnedFirstShooterRef = useRef<boolean>(false);
 
-  // Reset state on game start / restart
+  // Reset state on game start / restart, AND on exit (stop rendering stale targets
+  // when returning to the menu or hitting game-over — rendering below is unconditional
+  // on gameActive, so leftover refs would otherwise stay visible on screen).
   useEffect(() => {
+    targetsRef.current = [];
+    projectilesRef.current = [];
+    particlesRef.current = [];
+    floatingTextsRef.current = [];
+    powerFistChargeRef.current = 0;
+    wasPinchingRef.current = false;
+    lastShotTimeRef.current = 0;
+    lastSpawnTimeRef.current = 0;
+    screenShakeRef.current = 0;
+    lastEmpTimeRef.current = -10000;
+    lastEmpWarningTimeRef.current = 0;
+    hasSpawnedFirstShooterRef.current = false;
+
     if (gameActive) {
-      targetsRef.current = [];
-      projectilesRef.current = [];
-      particlesRef.current = [];
-      floatingTextsRef.current = [];
-      powerFistChargeRef.current = 0;
-      wasPinchingRef.current = false;
-      lastShotTimeRef.current = 0;
-      lastSpawnTimeRef.current = 0;
-      screenShakeRef.current = 0;
-      lastEmpTimeRef.current = -10000;
-      lastEmpWarningTimeRef.current = 0;
       roundStartTimeRef.current = performance.now();
-      hasSpawnedFirstShooterRef.current = false;
     }
   }, [gameActive]);
 
