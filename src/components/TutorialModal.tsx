@@ -105,7 +105,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
             onClick={() => setActiveTab('gestures')}
             className={`px-3 py-1.5 rounded-lg text-xs font-cyber font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 ${
               activeTab === 'gestures'
-                ? 'bg-cyan-500 text-slate-950 shadow-md shadow-cyan-500/20'
+                ? 'bg-cyan-500 text-white shadow-md shadow-cyan-500/20'
                 : 'text-slate-400 hover:text-cyan-300 hover:bg-slate-800/60'
             }`}
           >
@@ -116,7 +116,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
             onClick={() => setActiveTab('twist')}
             className={`px-3 py-1.5 rounded-lg text-xs font-cyber font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 ${
               activeTab === 'twist'
-                ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+                ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
                 : 'text-slate-400 hover:text-amber-300 hover:bg-slate-800/60'
             }`}
           >
@@ -127,7 +127,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
             onClick={() => setActiveTab('rules')}
             className={`px-3 py-1.5 rounded-lg text-xs font-cyber font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 ${
               activeTab === 'rules'
-                ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
                 : 'text-slate-400 hover:text-emerald-300 hover:bg-slate-800/60'
             }`}
           >

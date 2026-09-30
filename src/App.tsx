@@ -125,6 +125,8 @@ export function App() {
     soundManager.playComboUp();
   };
 
+  const exitToMenu = () => setGameState('MENU');
+
   // Game timer countdown
   useEffect(() => {
     if (gameState !== 'PLAYING') return;
@@ -172,6 +174,7 @@ export function App() {
           onToggleMute={() => setIsMuted(soundManager.toggleMute())}
           onOpenTutorial={() => setShowTutorial(true)}
           onRestart={() => startGame()}
+          onExitToMenu={exitToMenu}
         />
       )}
 
@@ -179,12 +182,12 @@ export function App() {
       {gameState === 'MENU' && (
         <div className="relative z-30 flex flex-col items-center justify-center h-full max-w-4xl mx-auto px-4 text-center">
           {/* Hackathon Badge */}
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 text-xs font-cyber font-bold uppercase tracking-wider mb-4 animate-bounce">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 text-xs font-cyber font-bold uppercase tracking-wider mb-4 animate-float-smooth">
             <Sparkles className="w-4 h-4 text-cyan-400" /> Admit Hackathon · Кейс «Motion: Камера вместо джойстика»
           </div>
 
           {/* Title */}
-          <h1 className="font-display text-4xl sm:text-6xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-teal-200 to-pink-500 tracking-wider">
+          <h1 className="font-display text-4xl sm:text-6xl md:text-7xl font-black text-cyan-400 tracking-wider">
             PEWPEW AIM FX
           </h1>
           <p
@@ -272,6 +275,7 @@ export function App() {
         stats={stats}
         onRestart={() => startGame()}
         onOpenTutorial={() => setShowTutorial(true)}
+        onExitToMenu={exitToMenu}
       />
     </div>
   );

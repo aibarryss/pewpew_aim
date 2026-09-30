@@ -5,6 +5,7 @@ import {
   RotateCcw,
   Activity,
   CheckCircle2,
+  Home,
 } from 'lucide-react';
 import { GameStats, LeaderboardEntry } from '../types/game';
 
@@ -13,6 +14,7 @@ interface GameOverModalProps {
   stats: GameStats;
   onRestart: () => void;
   onOpenTutorial: () => void;
+  onExitToMenu: () => void;
 }
 
 const LEADERBOARD_STORAGE_KEY = 'pewpew_aim_leaderboard_v1';
@@ -22,6 +24,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   stats,
   onRestart,
   onOpenTutorial,
+  onExitToMenu,
 }) => {
   const [playerName, setPlayerName] = useState<string>('');
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
@@ -193,7 +196,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
               <button
                 type="submit"
                 disabled={!playerName.trim()}
-                className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 font-cyber font-bold text-xs uppercase tracking-wider transition-colors"
+                className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-white font-cyber font-bold text-xs uppercase tracking-wider transition-colors"
               >
                 Сохранить
               </button>
@@ -247,6 +250,13 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
             className="flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-cyber font-bold text-xs uppercase tracking-wider transition-colors"
           >
             Калибровка жестов
+          </button>
+
+          <button
+            onClick={onExitToMenu}
+            className="flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-cyber font-bold text-xs uppercase tracking-wider transition-colors flex items-center justify-center gap-2"
+          >
+            <Home className="w-4 h-4" /> В меню
           </button>
 
           <button

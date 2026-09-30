@@ -10,6 +10,7 @@ import {
   Flame,
   Heart,
   Clock,
+  Home,
 } from 'lucide-react';
 import { GameStats, HandDetectionResult } from '../types/game';
 
@@ -21,6 +22,7 @@ interface HUDProps {
   onToggleMute: () => void;
   onOpenTutorial: () => void;
   onRestart: () => void;
+  onExitToMenu: () => void;
 }
 
 export const HUD: React.FC<HUDProps> = ({
@@ -31,6 +33,7 @@ export const HUD: React.FC<HUDProps> = ({
   onToggleMute,
   onOpenTutorial,
   onRestart,
+  onExitToMenu,
 }) => {
   const getGestureBadge = () => {
     if (!handResult.detected) {
@@ -97,7 +100,7 @@ export const HUD: React.FC<HUDProps> = ({
 
             {/* Combo Multiplier */}
             {stats.currentCombo > 1 && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/50 text-amber-300 animate-bounce">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/50 text-amber-300 animate-float-smooth">
                 <Flame className="w-4 h-4 text-amber-400" />
                 <span className="font-display font-extrabold text-sm md:text-base">
                   x{stats.currentCombo} COMBO
@@ -173,6 +176,14 @@ export const HUD: React.FC<HUDProps> = ({
           >
             <HelpCircle className="w-4 h-4 text-cyan-400" />
             <span className="hidden sm:inline">Жесты</span>
+          </button>
+
+          <button
+            onClick={onExitToMenu}
+            className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-700 hover:border-cyan-400 text-slate-300 hover:text-cyan-300 backdrop-blur-md transition-all active:scale-95 shadow-lg"
+            title="Выйти в главное меню"
+          >
+            <Home className="w-4 h-4" />
           </button>
 
           <button
