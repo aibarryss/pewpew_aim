@@ -3,11 +3,13 @@ import {
   Shield,
   HelpCircle,
   Sparkles,
+  Cpu,
 } from 'lucide-react';
 import { WebcamView } from './components/WebcamView';
 import { GameCanvas } from './components/GameCanvas';
 import { HUD } from './components/HUD';
 import { TutorialModal } from './components/TutorialModal';
+import { QuickOnboardingModal } from './components/QuickOnboardingModal';
 import { GameOverModal } from './components/GameOverModal';
 import { ErrorFeedbackToast } from './components/ErrorFeedbackToast';
 import {
@@ -42,8 +44,22 @@ export function App() {
   const [timeLeft, setTimeLeft] = useState<number>(60);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [showTutorial, setShowTutorial] = useState<boolean>(false);
+  const [tutorialInitialTab, setTutorialInitialTab] = useState<'gestures' | 'twist' | 'rules' | 'architecture'>('gestures');
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(false);
   const [showSkeleton, setShowSkeleton] = useState<boolean>(true);
   const [isMirrored, setIsMirrored] = useState<boolean>(true);
+
+  // Check first-time onboarding
+  useEffect(() => {
+    try {
+      const onboarded = localStorage.getItem('pewpew_onboarded');
+      if (!onboarded) {
+        setShowOnboarding(true);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   // Hand & Face tracking state
   const [handResult, setHandResult] = useState<HandDetectionResult>({
@@ -254,12 +270,25 @@ export function App() {
           </div>
 
           {/* Secondary Actions */}
-          <div className="flex items-center gap-4 mt-5">
+          <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 mt-5">
             <button
-              onClick={() => setShowTutorial(true)}
+              onClick={() => {
+                setTutorialInitialTab('gestures');
+                setShowTutorial(true);
+              }}
               className="text-xs font-cyber font-semibold text-slate-400 hover:text-cyan-300 flex items-center gap-1.5 transition-colors"
             >
-              <HelpCircle className="w-4 h-4 text-cyan-400" /> Интерактивная калибровка и правила
+              <HelpCircle className="w-4 h-4 text-cyan-400" /> Калибровка и правила
+            </button>
+            <span className="text-slate-700 hidden sm:inline">•</span>
+            <button
+              onClick={() => {
+                setTutorialInitialTab('architecture');
+                setShowTutorial(true);
+              }}
+              className="text-xs font-cyber font-semibold text-slate-400 hover:text-cyan-300 flex items-center gap-1.5 transition-colors"
+            >
+              <Cpu className="w-4 h-4 text-cyan-400" /> Как это работает (Архитектура)
             </button>
           </div>
         </div>
@@ -287,12 +316,35 @@ export function App() {
         />
       </div>
 
+      {/* Quick 10-Second First-Time Onboarding Modal */}
+      <QuickOnboardingModal
+        isOpen={showOnboarding}
+        onClose={() => {
+          try {
+            localStorage.setItem('pewpew_onboarded', 'true');
+          } catch {
+            // ignore
+          }
+          setShowOnboarding(false);
+        }}
+        onStartGame={() => {
+          try {
+            localStorage.setItem('pewpew_onboarded', 'true');
+          } catch {
+            // ignore
+          }
+          setShowOnboarding(false);
+          startGame();
+        }}
+      />
+
       {/* Interactive Calibration & Tutorial Modal */}
       <TutorialModal
         isOpen={showTutorial}
         onClose={() => setShowTutorial(false)}
         onStartGame={() => startGame()}
         handResult={handResult}
+        initialTab={tutorialInitialTab}
       />
 
       {/* Game Over Results Modal */}

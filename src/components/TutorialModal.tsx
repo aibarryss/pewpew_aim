@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   CheckCircle,
   Crosshair,
@@ -10,6 +10,7 @@ import {
   ArrowRight,
   Hand,
   Sparkles,
+  Cpu,
 } from 'lucide-react';
 import { HandDetectionResult } from '../types/game';
 
@@ -18,6 +19,7 @@ interface TutorialModalProps {
   onClose: () => void;
   onStartGame: () => void;
   handResult: HandDetectionResult;
+  initialTab?: 'gestures' | 'twist' | 'rules' | 'architecture';
 }
 
 export const TutorialModal: React.FC<TutorialModalProps> = ({
@@ -25,8 +27,15 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
   onClose,
   onStartGame,
   handResult,
+  initialTab = 'gestures',
 }) => {
-  const [activeTab, setActiveTab] = useState<'gestures' | 'twist' | 'rules'>('gestures');
+  const [activeTab, setActiveTab] = useState<'gestures' | 'twist' | 'rules' | 'architecture'>(initialTab);
+
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
 
   if (!isOpen) return null;
 
@@ -132,6 +141,17 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
             }`}
           >
             <Crosshair className="w-3.5 h-3.5" /> Правила и Мишени
+          </button>
+
+          <button
+            onClick={() => setActiveTab('architecture')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-cyber font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 ${
+              activeTab === 'architecture'
+                ? 'bg-cyan-600 text-white shadow-md shadow-cyan-500/20'
+                : 'text-slate-400 hover:text-cyan-300 hover:bg-slate-800/60'
+            }`}
+          >
+            <Cpu className="w-3.5 h-3.5" /> Архитектура
           </button>
         </div>
 
@@ -278,6 +298,46 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
                     <span className="text-slate-300">Редкий бонус, мгновенный буст очков</span>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'architecture' && (
+            <div className="space-y-3 font-cyber text-xs">
+              <div className="p-3.5 rounded-xl bg-slate-950/70 border border-cyan-500/30">
+                <span className="font-bold text-cyan-300 uppercase tracking-wider block text-xs mb-1">
+                  1. Потоковый пайплайн кадров (Frame Pipeline)
+                </span>
+                <p className="text-slate-300 leading-relaxed">
+                  <code className="text-cyan-400">getUserMedia</code> → MediaPipe Hands (21 3D-landmark на каждом кадре) + MediaPipe FaceLandmarker (дросселирование ~10–12 вызовов/сек в <code className="text-cyan-400">processFrame</code>) → <code className="text-cyan-400">GestureDetector.analyze()</code> → распознанный жест / ошибка биомеханики → <code className="text-cyan-400">GameCanvas</code>.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-950/70 border border-pink-500/30">
+                <span className="font-bold text-pink-300 uppercase tracking-wider block text-xs mb-1">
+                  2. Адаптивное ускорение (GPU → CPU Fallback)
+                </span>
+                <p className="text-slate-300 leading-relaxed">
+                  FaceLandmarker инициализируется с GPU delegate (<code className="text-pink-400">createFromOptions({`{ delegate: 'GPU' }`})</code>). При ошибке WebGL или отсутствии дискретного GPU автоматически активируется CPU delegate, гарантируя стабильную работу на слабых ноутбуках и мобильных устройствах.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-950/70 border border-amber-500/30">
+                <span className="font-bold text-amber-300 uppercase tracking-wider block text-xs mb-1">
+                  3. Математический анализ биомеханики («Твист» без тяжелого ML)
+                </span>
+                <p className="text-slate-300 leading-relaxed">
+                  Углы сгиба фаланг <code className="text-amber-400">MCP-PIP-TIP</code> вычисляются через скалярное произведение 3D-векторов. Амплитуда рта вычисляется по евклидову расстоянию верхняя/нижняя губа. Никаких сторонних тяжелых нейросетей — чистая математика в реальном времени.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-950/70 border border-emerald-500/30">
+                <span className="font-bold text-emerald-300 uppercase tracking-wider block text-xs mb-1">
+                  4. Отказоустойчивость и мобильная оптимизация
+                </span>
+                <p className="text-slate-300 leading-relaxed">
+                  Watchdog-таймер (6000 мс) диагностирует сбои доступа к камере. На мобильных экранах активируется <code className="text-emerald-400">modelComplexity: 0</code>. При отсутствии камеры доступен бесшовный виртуальный «Режим мыши».
+                </p>
               </div>
             </div>
           )}
